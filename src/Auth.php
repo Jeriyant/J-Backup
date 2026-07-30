@@ -121,8 +121,8 @@ final class Auth
 
     private function validatePassword(string $password): void
     {
-        if (strlen($password) < 6) {
-            throw new RuntimeException('Password minimal 6 karakter.');
+        if (strlen($password) < 1) {
+            throw new RuntimeException('Password minimal 1 karakter.');
         }
     }
 }

@@ -341,6 +341,36 @@ final class Database
         return (int) $this->pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
     }
 
+    public function resetApplication(): void
+    {
+        $this->pdo->beginTransaction();
+        try {
+            foreach ([
+                'jobs',
+                'database_entries',
+                'schedules',
+                'ssh_tasks',
+                'encrypted_secrets',
+                'scheduler_state',
+                'settings',
+                'users',
+            ] as $table) {
+                $this->pdo->exec("DELETE FROM {$table}");
+            }
+            $this->pdo->exec(
+                "DELETE FROM sqlite_sequence
+                 WHERE name IN ('users', 'database_entries', 'schedules')"
+            );
+            $this->seed();
+            $this->pdo->commit();
+        } catch (\Throwable $error) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $error;
+        }
+    }
+
     public function createUser(string $username, string $passwordHash): int
     {
         $username = trim($username);

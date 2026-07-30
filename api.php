@@ -346,6 +346,72 @@ try {
         respond(['ok' => true]);
     }
 
+    if ($action === 'reset_database') {
+        requireMethod('POST');
+        $payload = input();
+        if (!hash_equals('RESET', trim((string) ($payload['confirmation'] ?? '')))) {
+            throw new HttpException(
+                'Ketik RESET untuk mengonfirmasi penghapusan seluruh konfigurasi.',
+                422
+            );
+        }
+
+        $activeCount = (int) $database->pdo()->query(
+            "SELECT (
+                (SELECT COUNT(*) FROM jobs
+                 WHERE status IN ('running', 'cancel_requested'))
+                +
+                (SELECT COUNT(*) FROM ssh_tasks WHERE status = 'running')
+            )"
+        )->fetchColumn();
+        if ($activeCount > 0) {
+            throw new HttpException(
+                'Reset ditolak karena worker sedang menjalankan pekerjaan.',
+                409
+            );
+        }
+
+        $settingsBeforeReset = $database->settings();
+        $keyPath = trim((string) ($settingsBeforeReset['ssh_key_path'] ?? ''));
+        $dataDirectory = rtrim((string) $container['data_directory'], '/\\');
+        $managedSshDirectory = realpath($dataDirectory . '/.ssh');
+        $cleanupWarnings = [];
+
+        $database->resetApplication();
+
+        $managedFiles = [$dataDirectory . '/.ssh/known_hosts'];
+        if ($keyPath !== '') {
+            $managedFiles[] = $keyPath;
+            $managedFiles[] = $keyPath . '.pub';
+        }
+        foreach (array_unique($managedFiles) as $managedFile) {
+            if (!is_file($managedFile)) {
+                continue;
+            }
+            $resolvedFile = realpath($managedFile);
+            if (
+                $managedSshDirectory === false
+                || $resolvedFile === false
+                || dirname($resolvedFile) !== $managedSshDirectory
+            ) {
+                $cleanupWarnings[] =
+                    'File SSH di luar folder data aplikasi dipertahankan.';
+                continue;
+            }
+            if (!@unlink($resolvedFile)) {
+                $cleanupWarnings[] =
+                    'Tidak dapat menghapus file lokal: ' . $resolvedFile;
+            }
+        }
+
+        $auth->logout();
+        respond([
+            'ok' => true,
+            'setup_required' => true,
+            'warnings' => $cleanupWarnings,
+        ]);
+    }
+
     if ($action === 'dashboard') {
         requireMethod('GET');
         $settings = publicSettings($database->settings());

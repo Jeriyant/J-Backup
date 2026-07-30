@@ -282,6 +282,42 @@ try {
         'Password SSH tersimpan tidak dihapus setelah disconnect.'
     );
 
+    $database->createUser(
+        'reset_admin',
+        password_hash('rahasia-reset', PASSWORD_DEFAULT)
+    );
+    $secretStore->set('ssh_password', 'akan-dihapus');
+    $database->resetApplication();
+    assertTrue($database->userCount() === 0, 'Reset tidak menghapus administrator.');
+    assertTrue($database->databases() === [], 'Reset tidak menghapus daftar database.');
+    assertTrue($database->jobs() === [], 'Reset tidak menghapus riwayat pekerjaan.');
+    assertTrue(
+        $database->encryptedSecret('ssh_password') === null,
+        'Reset tidak menghapus password SSH terenkripsi.'
+    );
+    assertTrue(
+        $database->schedulerState('ssh_connection') === null,
+        'Reset tidak menghapus status koneksi SSH.'
+    );
+    assertTrue(
+        count($database->schedules()) === 2
+            && array_reduce(
+                $database->schedules(),
+                static fn (bool $valid, array $item): bool =>
+                    $valid && $item['enabled'] === false,
+                true
+            ),
+        'Reset tidak mengembalikan jadwal bawaan nonaktif.'
+    );
+    assertTrue(
+        $database->settings()['remote_host'] === '',
+        'Reset tidak mengembalikan konfigurasi bawaan.'
+    );
+    assertTrue(
+        is_file($job['output_path']),
+        'Reset database ikut menghapus file hasil backup.'
+    );
+
     fwrite(STDOUT, "Semua smoke test J-BACKUP lulus.\n");
 } finally {
     removeTree($root);

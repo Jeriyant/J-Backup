@@ -151,7 +151,7 @@ http://localhost/j-backup/
 
 Saat pertama dibuka:
 
-1. Buat administrator dengan password minimal 6 karakter.
+1. Buat administrator dengan password minimal 1 karakter.
 2. Buka menu **Pengaturan**.
 3. Isi host, port, user, dan password SSH.
 4. Simpan pengaturan.
@@ -160,6 +160,11 @@ Saat pertama dibuka:
 7. Isi root database remote, folder staging, dan tujuan backup.
 8. Tambahkan database dari menu **Database**.
 9. Atur jadwal sinkronisasi dan backup.
+
+Menu **Dashboard** menampilkan status worker, kapasitas tujuan backup, aktivitas
+terbaru, dan status koneksi SSH. Status **Terhubung** hanya tampil jika target
+host/user yang tersimpan cocok dengan koneksi terakhir dan private key lokal
+masih tersedia.
 
 Password SSH disimpan terenkripsi memakai Sodium SecretBox. Key enkripsi
 berada di:
@@ -220,6 +225,24 @@ dan upload file `.7z`. Upload dengan nama sama akan ditolak.
 
 Batas upload bawaan adalah 8 GB. Ubah `deploy/php-j-backup.ini`, lalu jalankan
 installer kembali untuk menerapkan nilai baru.
+
+### Reset Database
+
+Menu **Pengaturan → Reset Database** mengembalikan aplikasi ke kondisi setup
+awal. Administrator harus mengetik `RESET` sebelum tindakan dapat dijalankan.
+Reset akan menghapus:
+
+- akun administrator;
+- seluruh konfigurasi aplikasi;
+- daftar database dan jadwal;
+- antrean serta riwayat pekerjaan;
+- status koneksi, tugas SSH, dan password SSH terenkripsi;
+- private/public key serta `known_hosts` yang dikelola di folder data aplikasi.
+
+File arsip pada folder tujuan backup tidak dihapus. Public key yang sudah
+terpasang pada server sumber juga tidak dicabut oleh Reset Database. Gunakan
+**Disconnect** terlebih dahulu jika public key remote juga harus dihapus.
+Reset ditolak selama worker sedang menjalankan pekerjaan.
 
 ### Catatan staging pada WSL
 

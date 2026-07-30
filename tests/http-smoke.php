@@ -189,9 +189,12 @@ try {
 
     $setup = $request('setup', 'POST', [
         'username' => 'admin',
-        'password' => 'password-yang-aman',
+        'password' => 'x',
     ]);
-    assertHttp($setup['status'] === 201, 'Setup administrator gagal.');
+    assertHttp(
+        $setup['status'] === 201,
+        'Setup administrator dengan password 1 karakter gagal.'
+    );
     $csrf = $setup['body']['csrf_token'];
 
     $backupRoot = $root . '/backups';
@@ -378,6 +381,59 @@ try {
         $weeklySchedule['status'] === 400,
         'Mode hari tertentu masih diterima.'
     );
+
+    $managedKey = $root . '/data/.ssh/id_ed25519';
+    if (!is_dir(dirname($managedKey))) {
+        mkdir(dirname($managedKey), 0770, true);
+    }
+    file_put_contents($managedKey, 'private-key-test');
+    file_put_contents($managedKey . '.pub', 'ssh-ed25519 test-key');
+
+    $resetRejected = $request('reset_database', 'POST', [
+        'confirmation' => 'reset',
+    ]);
+    assertHttp(
+        $resetRejected['status'] === 422,
+        'Reset database menerima konfirmasi yang tidak tepat.'
+    );
+
+    $reset = $request('reset_database', 'POST', [
+        'confirmation' => 'RESET',
+    ]);
+    assertHttp(
+        $reset['status'] === 200
+            && $reset['body']['setup_required'] === true,
+        'Reset database melalui API gagal.'
+    );
+    assertHttp(
+        !$secretDatabase->query('SELECT COUNT(*) FROM users')->fetchColumn()
+            && !$secretDatabase->query(
+                'SELECT COUNT(*) FROM database_entries'
+            )->fetchColumn()
+            && !$secretDatabase->query('SELECT COUNT(*) FROM jobs')->fetchColumn()
+            && !$secretDatabase->query('SELECT COUNT(*) FROM ssh_tasks')->fetchColumn()
+            && !$secretDatabase->query(
+                'SELECT COUNT(*) FROM encrypted_secrets'
+            )->fetchColumn(),
+        'Reset database tidak membersihkan seluruh data aplikasi.'
+    );
+    assertHttp(
+        !is_file($managedKey) && !is_file($managedKey . '.pub'),
+        'Reset database tidak menghapus key SSH lokal yang dikelola aplikasi.'
+    );
+    assertHttp(
+        is_file($backupRoot . '/2026/07/30/sample-backup.7z'),
+        'Reset database ikut menghapus file hasil backup.'
+    );
+
+    $statusAfterReset = $request('status');
+    assertHttp(
+        $statusAfterReset['status'] === 200
+            && $statusAfterReset['body']['setup_required'] === true
+            && $statusAfterReset['body']['authenticated'] === false,
+        'Aplikasi tidak kembali ke setup awal setelah reset.'
+    );
+
     fwrite(STDOUT, "HTTP smoke test J-BACKUP lulus.\n");
 } finally {
     proc_terminate($process);

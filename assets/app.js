@@ -6,7 +6,7 @@ const app = document.querySelector("#app");
     const toastElement = document.querySelector("#toast");
     const days = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
     const navItems = [
-        ["overview", "⌂", "Ringkasan"],
+        ["overview", "⌂", "Dashboard"],
         ["databases", "▦", "Database"],
         ["history", "↺", "Riwayat"],
         ["schedules", "◷", "Jadwal"],
@@ -130,7 +130,7 @@ const app = document.querySelector("#app");
                         : "Masuk untuk mengelola sinkronisasi dan backup server."}</p>
                     <form class="form" data-form="auth">
                         <label>Username<input name="username" autocomplete="username" minlength="3" required></label>
-                        <label>Password<input name="password" type="password" minlength="6"
+                        <label>Password<input name="password" type="password" minlength="1"
                             autocomplete="${setupRequired ? "new-password" : "current-password"}" required></label>
                         ${error ? `<p class="auth-error">${escapeHtml(error)}</p>` : ""}
                         <button class="button primary wide action-access" type="submit">
@@ -201,9 +201,7 @@ const app = document.querySelector("#app");
         if (!dashboard) return;
         state.mode = "ready";
         const workerReady = workerIsReady(dashboard.worker_heartbeat);
-        const title = state.tab === "overview"
-            ? "Kondisi backup hari ini"
-            : navItems.find(([id]) => id === state.tab)?.[2] || "J-BACKUP";
+        const title = navItems.find(([id]) => id === state.tab)?.[2] || "J-BACKUP";
         app.innerHTML = `
             <div class="app-shell">
                 <aside class="sidebar">
@@ -252,6 +250,11 @@ const app = document.querySelector("#app");
         const failures = d.jobs.filter((job) => job.status === "failed").length;
         const successes = d.jobs.filter((job) => job.status === "success").length;
         const next = d.schedules.find((schedule) => schedule.enabled);
+        const sshConnected = d.settings.ssh_connected === true;
+        const sshTarget = d.settings.ssh_connected_target
+            || (d.settings.remote_host
+                ? `${d.settings.remote_user}@${d.settings.remote_host}`
+                : "Host sumber belum diatur");
         const headline = active
             ? `${active.type === "sync" ? "Sinkronisasi" : "Backup"} sedang berjalan`
             : failures ? "Ada pekerjaan yang perlu diperiksa" : "Semua sistem berjalan normal";
@@ -280,6 +283,23 @@ const app = document.querySelector("#app");
                             <div class="disk-legend"><span><i></i>Terpakai <strong>${bytes(d.disk.used)}</strong></span>
                                 <span><i></i>Tersedia <strong>${bytes(d.disk.free)}</strong></span></div></div>
                     </div>
+                </article>
+                <article class="panel ssh-status-panel ${sshConnected ? "connected" : "disconnected"}">
+                    <div class="panel-heading"><div><p class="eyebrow">KONEKSI SUMBER</p><h2>Status SSH</h2></div>
+                        <span class="connection-badge"><i></i>${sshConnected ? "Terhubung" : "Belum terhubung"}</span></div>
+                    <div class="ssh-status-body">
+                        <div class="ssh-status-icon">${sshConnected ? "✓" : "!"}</div>
+                        <div>
+                            <strong>${sshConnected ? "Akses tanpa password siap" : "Server sumber belum terhubung"}</strong>
+                            <code>${escapeHtml(sshTarget)}</code>
+                            <small>${sshConnected
+                                ? `Terverifikasi ${dateTime(d.settings.ssh_connected_at)}`
+                                : "Buka Pengaturan untuk membuat key dan menguji koneksi SSH."}</small>
+                        </div>
+                    </div>
+                    <button class="button ssh-manage" type="button" data-tab="settings">
+                        <span>⚙</span>${sshConnected ? "Kelola koneksi" : "Hubungkan SSH"}
+                    </button>
                 </article>
                 <article class="panel recent-panel">
                     <div class="panel-heading"><div><p class="eyebrow">AKTIVITAS</p><h2>Riwayat terbaru</h2></div>
@@ -511,6 +531,16 @@ const app = document.querySelector("#app");
             </section>
             <div class="settings-actions"><button class="button ghost" type="button" data-action="check-update"><span>↻</span>Cek pembaruan</button>
                 <button class="button primary action-save" type="submit"><span>✓</span>Simpan semua pengaturan</button></div>
+            <section class="panel danger-zone">
+                <div>
+                    <p class="eyebrow">ZONA BERBAHAYA</p>
+                    <h2>Reset Database</h2>
+                    <p>Menghapus akun administrator, konfigurasi, daftar database, jadwal, riwayat, antrean, dan kredensial SSH lokal. File hasil backup tidak dihapus.</p>
+                </div>
+                <button class="button danger" type="button" data-action="reset-database">
+                    <span>↺</span>Reset Database
+                </button>
+            </section>
         </form>`;
     }
 
@@ -539,6 +569,27 @@ const app = document.querySelector("#app");
             <p class="muted">${state.selected.size ? `${state.selected.size} database terpilih akan diproses.` : "Semua database aktif akan diproses berurutan."}</p>
             <div class="choices"><button class="choice" data-run="sync"><i>↕</i><span><strong>Sinkronisasi</strong><small>Tarik folder remote ke staging</small></span></button>
                 <button class="choice" data-run="backup"><i>7Z</i><span><strong>Buat backup</strong><small>Kompres & verifikasi di tujuan</small></span></button></div>`);
+    }
+
+    function resetDatabaseDialog() {
+        showModal(`
+            <p class="eyebrow danger-copy">RESET DATABASE</p>
+            <h2>Kembalikan aplikasi ke setup awal?</h2>
+            <p class="muted">Semua data aplikasi akan dihapus permanen. Arsip dalam folder tujuan backup tetap dipertahankan.</p>
+            <div class="reset-warning">
+                <strong>Sebelum melanjutkan</strong>
+                <span>Disconnect SSH terlebih dahulu bila public key juga ingin dicabut dari server sumber.</span>
+            </div>
+            <form class="form" data-form="database-reset">
+                <label>Ketik <code>RESET</code> untuk konfirmasi
+                    <input id="reset-confirmation" name="confirmation" autocomplete="off"
+                        spellcheck="false" placeholder="RESET" required pattern="RESET">
+                </label>
+                <button id="reset-confirm-button" class="button danger wide" disabled>
+                    <span>↺</span>Hapus semua data aplikasi
+                </button>
+            </form>
+        `);
     }
 
     function jobDialog(id) {
@@ -785,6 +836,8 @@ const app = document.querySelector("#app");
                 toast(result.update_available
                     ? `Versi ${result.latest_version} tersedia.`
                     : `J-BACKUP ${result.current_version} sudah terbaru.`);
+            } else if (target.dataset.action === "reset-database") {
+                resetDatabaseDialog();
             } else if (target.dataset.action === "ssh-connect") {
                 await runSshTool("generate_key", true);
             } else if (target.dataset.action === "ssh-disconnect") {
@@ -873,6 +926,9 @@ const app = document.querySelector("#app");
             const next = document.querySelector("#storage-search");
             next?.focus();
             next?.setSelectionRange(cursor, cursor);
+        } else if (event.target.id === "reset-confirmation") {
+            const button = document.querySelector("#reset-confirm-button");
+            if (button) button.disabled = event.target.value !== "RESET";
         }
     });
 
@@ -905,6 +961,20 @@ const app = document.querySelector("#app");
                 await api("settings_update", { method: "POST", body: data });
                 toast("Pengaturan berhasil disimpan.");
                 await loadDashboard();
+            } else if (kind === "database-reset") {
+                const result = await api("reset_database", {
+                    method: "POST",
+                    body: data,
+                });
+                closeModal();
+                if (state.poller) clearInterval(state.poller);
+                state.poller = null;
+                state.dashboard = null;
+                state.selected.clear();
+                state.storage = null;
+                state.mode = "loading";
+                toast(result.warnings?.[0] || "Database berhasil direset.");
+                await boot();
             }
         } catch (error) {
             if (kind === "auth") renderAuth(state.mode === "setup", error.message);
