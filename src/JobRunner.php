@@ -10,7 +10,9 @@ use RuntimeException;
 final class JobRunner
 {
     private const MAX_LOG_LENGTH = 200000;
+    private const HEARTBEAT_INTERVAL_SECONDS = 10;
     private ?string $activeSshTaskId = null;
+    private int $lastHeartbeatAt = 0;
 
     public function __construct(
         private readonly Database $database,
@@ -31,10 +33,7 @@ final class JobRunner
         }
 
         try {
-            $this->database->setSchedulerState(
-                'worker_heartbeat',
-                Database::now()
-            );
+            $this->refreshHeartbeat(true);
             $this->recoverInterruptedJobs();
             $this->recoverInterruptedSshTasks();
             $this->recoverInterruptedPathTasks();
@@ -43,7 +42,9 @@ final class JobRunner
             $this->enqueueDueSchedules();
             $processed = 0;
             while ($job = $this->database->nextQueuedJob()) {
+                $this->refreshHeartbeat(true);
                 $this->runJob($job);
+                $this->refreshHeartbeat(true);
                 $processed++;
             }
             return $processed;
@@ -51,6 +52,22 @@ final class JobRunner
             flock($lock, LOCK_UN);
             fclose($lock);
         }
+    }
+
+    private function refreshHeartbeat(bool $force = false): void
+    {
+        $now = time();
+        if (
+            !$force
+            && ($now - $this->lastHeartbeatAt) < self::HEARTBEAT_INTERVAL_SECONDS
+        ) {
+            return;
+        }
+        $this->database->setSchedulerState(
+            'worker_heartbeat',
+            Database::now()
+        );
+        $this->lastHeartbeatAt = $now;
     }
 
     private function recoverInterruptedJobs(): void
@@ -706,6 +723,7 @@ SH;
 
         try {
             while (true) {
+                $this->refreshHeartbeat();
                 $stdoutChunk = (string) stream_get_contents($pipes[1]);
                 $stderrChunk = (string) stream_get_contents($pipes[2]);
                 $stdout .= $stdoutChunk;
@@ -1153,6 +1171,7 @@ SH;
 
         try {
             while (true) {
+                $this->refreshHeartbeat();
                 foreach ([1, 2] as $pipeIndex) {
                     $chunk = stream_get_contents($pipes[$pipeIndex]);
                     if ($chunk !== false && $chunk !== '') {

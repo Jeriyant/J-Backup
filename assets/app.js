@@ -304,6 +304,12 @@ const app = document.querySelector("#app");
         if (!dashboard) return;
         state.mode = "ready";
         const workerReady = workerIsReady(dashboard.worker_heartbeat);
+        const workerWorking = workerReady && Boolean(dashboard.active_job);
+        const workerLabel = workerWorking
+            ? "Worker sedang bekerja"
+            : workerReady
+                ? "Worker siap"
+                : "Worker tidak terhubung";
         const title = navItems.find(([id]) => id === state.tab)?.[2] || "J-BACKUP";
         app.innerHTML = `
             <div class="app-shell">
@@ -320,7 +326,7 @@ const app = document.querySelector("#app");
                     </nav>
                     <div class="sidebar-footer">
                         <div class="service-state ${workerReady ? "" : "offline"}"><i></i><span>
-                            <strong>${workerReady ? "Worker siap" : "Worker tidak terhubung"}</strong>
+                            <strong>${workerLabel}</strong>
                             <small>Versi ${escapeHtml(dashboard.version)}</small></span></div>
                         <button class="icon-button" data-action="theme" aria-label="Ganti tema">◐</button>
                     </div>
@@ -419,10 +425,10 @@ const app = document.querySelector("#app");
 
         const healthLevel = critical.length
             ? "critical"
-            : warnings.length
-                ? "warning"
-                : active
-                    ? "running"
+            : active
+                ? "running"
+                : warnings.length
+                    ? "warning"
                     : "healthy";
         const headline = {
             critical: "Sistem memerlukan tindakan segera",
@@ -430,11 +436,13 @@ const app = document.querySelector("#app");
             running: `${active?.type === "sync" ? "Sinkronisasi" : "Backup"} sedang berjalan`,
             healthy: "Seluruh komponen terpantau normal",
         }[healthLevel];
-        const detail = critical.length || warnings.length
+        const detail = critical.length
             ? [...critical, ...warnings].join(" · ")
             : active
-                ? `${active.source_name} sedang diproses. ${d.queue_count} pekerjaan menunggu.`
-                : "Worker, SSH, disk, resource host, dan jadwal berada dalam kondisi siap.";
+                ? `${active.source_name} sedang diproses. ${d.queue_count} pekerjaan menunggu.${warnings.length ? ` Catatan: ${warnings.join(" · ")}` : ""}`
+                : warnings.length
+                    ? warnings.join(" · ")
+                    : "Worker, SSH, disk, resource host, dan jadwal berada dalam kondisi siap.";
         const healthBadge = {
             critical: "!",
             warning: "WARN",
