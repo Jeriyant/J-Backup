@@ -793,22 +793,22 @@ const app = document.querySelector("#app");
                     <label>Kompresi 7z<select name="compression_level">${[0,1,3,5,7,9].map((level) => `<option value="${level}" ${Number(s.compression_level) === level ? "selected" : ""}>Level ${level}</option>`).join("")}</select></label>
                     <label>Minimum ruang kosong<input name="minimum_free_bytes" type="number" min="0" value="${s.minimum_free_bytes}"></label>
                     <label>Zona waktu<input name="timezone" value="${escapeHtml(s.timezone)}"></label>
+                    <div class="span-2">${pathCheckMarkup("backup", state.pathChecks.backup)}</div>
                     <div class="path-panel-actions span-2">
                         <button class="button path-test" type="button" data-action="test-path" data-path-kind="backup"><span>✓</span>Tes akses folder</button>
                         <button class="button primary" type="submit"><span>✓</span>Simpan pengaturan backup</button>
                     </div>
-                    <div class="span-2">${pathCheckMarkup("backup", state.pathChecks.backup)}</div>
                 </div>
             </form>
             <form class="panel form settings-realtime-panel" data-form="settings-realtime"><div class="panel-heading"><div><p class="eyebrow">DATA REALTIME</p><h2>Tujuan RSYNC</h2></div></div>
                 <div class="form-grid">
                     <label class="span-2">Folder data realtime<input name="staging_dir" value="${escapeHtml(s.staging_dir)}">
                         <small>Data terbaru hasil sinkronisasi disimpan di sini dan menjadi sumber pembuatan backup.</small></label>
+                    <div class="span-2">${pathCheckMarkup("realtime", state.pathChecks.realtime)}</div>
                     <div class="path-panel-actions span-2">
                         <button class="button path-test" type="button" data-action="test-path" data-path-kind="realtime"><span>✓</span>Tes akses folder</button>
                         <button class="button primary" type="submit"><span>✓</span>Simpan pengaturan realtime</button>
                     </div>
-                    <div class="span-2">${pathCheckMarkup("realtime", state.pathChecks.realtime)}</div>
                 </div>
             </form>
             <section class="panel danger-zone">
