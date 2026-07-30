@@ -701,7 +701,7 @@ const app = document.querySelector("#app");
                             <input class="time-input" type="time" name="time" value="${schedule.time}" step="60" required>
                         </label>`}
                     <button class="button primary schedule-save" type="submit">
-                        <span>✓</span>Simpan jadwal ${schedule.type === "sync" ? "RSYNC" : "backup"}
+                        <span>✓</span>Simpan
                     </button>
                 </div>
                 <div class="schedule-foot">Aktif · ${scheduleText(schedule)}</div>`
