@@ -88,6 +88,18 @@ const app = document.querySelector("#app");
         return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
     };
 
+    const stopIcon = () => `
+        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.5"></circle>
+            <rect x="9" y="9" width="6" height="6" rx="1"></rect>
+        </svg>`;
+
+    const detailIcon = () => `
+        <svg class="row-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M2.75 12s3.5-6 9.25-6 9.25 6 9.25 6-3.5 6-9.25 6S2.75 12 2.75 12Z"></path>
+            <circle cx="12" cy="12" r="2.75"></circle>
+        </svg>`;
+
     const diskForPath = (path, disks) => {
         const normalized = String(path ?? "").replace(/\/+$/, "") || "/";
         return [...disks]
@@ -614,7 +626,7 @@ const app = document.querySelector("#app");
                     </button>` : ""}
                 ${cancellableJobs.length ? `
                     <button class="button danger" data-action="cancel-all-jobs">
-                        <span>■</span>Batalkan semua (${cancellableJobs.length})
+                        <span>${stopIcon()}</span>Batalkan semua (${cancellableJobs.length})
                     </button>` : ""}
             </div></div>
             ${jobTable(state.dashboard.jobs)}</article>`;
@@ -633,7 +645,7 @@ const app = document.querySelector("#app");
                 <td>${job.type === "sync" ? "Sinkronisasi" : "Backup 7z"}</td>
                 <td><span class="status status-${escapeHtml(job.status)}">${statusText(job.status)}</span></td>
                 <td>${job.size_bytes ? bytes(job.size_bytes) : "—"}</td><td>${dateTime(job.started_at || job.queued_at)}</td>
-                <td><button class="row-button" data-job-id="${escapeHtml(job.id)}" aria-label="Lihat detail">→</button></td>
+                <td><button class="row-button" data-job-id="${escapeHtml(job.id)}" aria-label="Lihat detail" title="Lihat detail">${detailIcon()}</button></td>
             </tr>`).join("")}</tbody></table></div>`;
     }
 
@@ -1116,7 +1128,7 @@ const app = document.querySelector("#app");
             <div class="detail-line"><span>Verifikasi tujuan</span><strong>${escapeHtml(job.verification || "Belum tersedia")}</strong></div>
             ${job.checksum ? `<div class="detail-line"><span>SHA-256</span><code>${escapeHtml(job.checksum)}</code></div>` : ""}
             <pre class="log">${escapeHtml(job.log || "Log pekerjaan belum tersedia.")}</pre>
-            ${["queued","running"].includes(job.status) ? `<button class="button danger wide" data-cancel-job="${escapeHtml(job.id)}"><span>■</span>Batalkan pekerjaan</button>` : ""}`, true);
+            ${["queued","running"].includes(job.status) ? `<button class="button danger wide" data-cancel-job="${escapeHtml(job.id)}"><span>${stopIcon()}</span>Batalkan pekerjaan</button>` : ""}`, true);
     }
 
     function cancelAllJobsDialog() {
@@ -1136,7 +1148,7 @@ const app = document.querySelector("#app");
                 <span>Riwayat pekerjaan yang sudah selesai tidak akan dihapus.</span>
             </div>
             <button class="button danger wide" data-action="confirm-cancel-all-jobs">
-                <span>■</span>Ya, batalkan semua pekerjaan
+                <span>${stopIcon()}</span>Ya, batalkan semua pekerjaan
             </button>
         `);
     }

@@ -205,6 +205,15 @@ button { color: inherit; }
 .icon-button:hover { border-color:var(--violet); color:var(--violet); }
 .row-button[data-job-id] { border-color:color-mix(in srgb,var(--blue) 30%,var(--line)); color:var(--blue); }
 .row-button[data-delete-id], .modal-close { border-color:color-mix(in srgb,var(--red) 28%,var(--line)); color:var(--red); }
+.row-action-icon {
+    width:18px;
+    height:18px;
+    fill:none;
+    stroke:currentColor;
+    stroke-width:1.8;
+    stroke-linecap:round;
+    stroke-linejoin:round;
+}
 .main {
     min-height: 100vh;
     margin-left: 248px;
@@ -330,6 +339,17 @@ h1, h2, h3,
     background:color-mix(in srgb,currentColor 13%,transparent);
     font-size:10px;
     font-weight:950;
+}
+.button-icon {
+    width:15px;
+    height:15px;
+    fill:none;
+    stroke:currentColor;
+    stroke-width:1.8;
+}
+.button-icon rect {
+    fill:currentColor;
+    stroke:none;
 }
 .button:hover { transform: translateY(-1px); }
 .button:disabled { cursor:not-allowed; opacity:.42; transform:none; }
