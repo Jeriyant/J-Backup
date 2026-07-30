@@ -340,13 +340,13 @@ h1, h2, h3,
 .button.wide { width: 100%; }
 .button[data-action="manual"] { border-color:color-mix(in srgb,var(--amber) 35%,var(--line)); color:var(--amber); }
 .button.manual-action {
-    border-color:#eab308;
-    background:#facc15;
-    color:#b91c1c;
-    box-shadow:0 8px 20px rgba(234,179,8,.18);
+    border-color:var(--line);
+    background:transparent;
+    color:var(--ink);
+    box-shadow:none;
 }
-.button.manual-action:hover { background:#fde047; }
-.button.manual-action > span { background:rgba(185,28,28,.1); }
+.button.manual-action:hover { background:var(--surface-2); }
+.button.manual-action > span { background:color-mix(in srgb,currentColor 10%,transparent); }
 .button[data-action="import"], .action-import-dialog { background:var(--violet) !important; color:#fff !important; border-color:var(--violet) !important; }
 .button[data-action="add"], .action-add-dialog { background:var(--blue) !important; color:#fff !important; border-color:var(--blue) !important; }
 .button[data-run="sync"] { border-color:var(--cyan); color:var(--cyan); }

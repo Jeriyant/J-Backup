@@ -313,6 +313,7 @@ const app = document.querySelector("#app");
                             <div><p class="eyebrow">${escapeHtml(title.toUpperCase())}</p><h1>${escapeHtml(title)}</h1></div>
                         </div>
                         <div class="top-actions">
+                            <button class="button manual-action" data-action="manual"><span>▶</span>Jalankan manual</button>
                             <div class="account-control">
                                 <button class="user-chip" data-action="account-menu"
                                     aria-expanded="${state.accountMenu}" title="Menu akun">
@@ -332,7 +333,6 @@ const app = document.querySelector("#app");
                                         </button>
                                     </div>` : ""}
                             </div>
-                            <button class="button manual-action" data-action="manual"><span>▶</span>Jalankan manual</button>
                         </div>
                     </header>
                     <section id="view">${renderView()}</section>
