@@ -538,7 +538,10 @@ const app = document.querySelector("#app");
                         <article class="database-row ${item.enabled ? "" : "off"}">
                             <input type="checkbox" data-select-id="${item.id}" ${state.selected.has(item.id) ? "checked" : ""} aria-label="Pilih ${escapeHtml(item.name)}">
                             <div class="database-icon">${escapeHtml(sourceInitials(item.name))}</div>
-                            <div class="database-copy"><strong>${escapeHtml(item.name)}</strong>
+                            <div class="database-copy"><div class="database-title">
+                                <span class="source-id">ID ${escapeHtml(item.id)}</span>
+                                <strong>${escapeHtml(item.name)}</strong>
+                            </div>
                                 <small>${item.paths.map((path) => escapeHtml(path.path)).join(" · ")}</small></div>
                             <span class="tag">${item.archive_mode === "separate" ? "Terpisah" : "Gabungkan"}</span>
                             <label class="switch"><input type="checkbox" data-toggle-id="${item.id}" ${item.enabled ? "checked" : ""}><span></span></label>
@@ -561,8 +564,13 @@ const app = document.querySelector("#app");
 
     function jobTable(jobs) {
         if (!jobs.length) return `<div class="empty"><strong>Belum ada pekerjaan</strong>Riwayat akan muncul di sini.</div>`;
+        const sortedJobs = [...jobs].sort((left, right) => {
+            const leftTime = Date.parse(left.started_at || left.queued_at || "") || 0;
+            const rightTime = Date.parse(right.started_at || right.queued_at || "") || 0;
+            return rightTime - leftTime || Number(right.id) - Number(left.id);
+        });
         return `<div class="table-wrap"><table><thead><tr><th>Sumber</th><th>Proses</th><th>Status</th><th>Ukuran</th><th>Waktu</th><th></th></tr></thead>
-            <tbody>${jobs.map((job) => `<tr>
+            <tbody>${sortedJobs.map((job) => `<tr>
                 <td><strong>${escapeHtml(job.source_name)}</strong><small>${escapeHtml(job.output_path || job.error || "Menunggu proses")}</small></td>
                 <td>${job.type === "sync" ? "Sinkronisasi" : "Backup 7z"}</td>
                 <td><span class="status status-${escapeHtml(job.status)}">${statusText(job.status)}</span></td>

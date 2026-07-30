@@ -634,6 +634,21 @@ td small { overflow: hidden; max-width: 320px; margin-top: 4px; color: var(--mut
     font-weight: 950;
 }
 .database-copy { display: flex; min-width: 0; flex-direction: column; }
+.database-title { display:flex; min-width:0; align-items:center; gap:7px; }
+.source-id {
+    display:inline-flex;
+    flex:0 0 auto;
+    align-items:center;
+    justify-content:center;
+    border:1px solid color-mix(in srgb,var(--blue) 24%,var(--line));
+    border-radius:999px;
+    background:color-mix(in srgb,var(--blue) 9%,var(--surface));
+    color:var(--blue);
+    padding:3px 7px;
+    font-family:var(--font-mono);
+    font-size:7px;
+    font-weight:900;
+}
 .database-copy strong { font-size: 12px; }
 .database-copy small { overflow: hidden; margin-top: 4px; color: var(--muted); font-family:var(--font-mono); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .switch { position: relative; display: inline-flex; }

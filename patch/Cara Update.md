@@ -9,6 +9,8 @@ Patch ini hanya mengganti dua aset antarmuka:
 
 - Ikon sumber otomatis memakai inisial nama sumber.
 - Inisial sumber tampil sebagai mini-logo hitam/putih yang mengikuti tema aplikasi.
+- ID sumber ditampilkan dalam kapsul pada setiap baris.
+- Riwayat pekerjaan selalu diurutkan dari waktu terbaru ke terlama.
 - Disk tujuan Realtime ditampilkan pada menu Penyimpanan.
 - Mount sistem WSL seperti `/usr/lib/wsl/drivers` ditempatkan paling bawah.
 - Teks informasi koneksi SSH dibuat lebih kecil.
@@ -47,6 +49,6 @@ sudo systemctl reload apache2
 ## SHA-256
 
 ```text
-assets/app.js   565DE4E9FFBD129FE683755473C03D1F56AD1007E9788B3A8476475269CB3ACF
-assets/app.css  D330A0A746AD3C33174B50797FBF8700CD826CC056D39B888B5891F950B93830
+assets/app.js   62E4380752C94204A75DACC2CB69C09220ED3F881F05B562B5CFEE14B2EF44B4
+assets/app.css  F302BB57C081C715DF57ABE2316D73A8D721496DF2F9AB07DE882B7B8828C1B0
 ```
