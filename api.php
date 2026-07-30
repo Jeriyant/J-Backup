@@ -66,6 +66,7 @@ function validateSettings(array $values): array
         'remote_port' => [1, 65535, 'Port SSH'],
         'compression_level' => [0, 9, 'Tingkat kompresi'],
         'minimum_free_bytes' => [0, PHP_INT_MAX, 'Minimum ruang kosong'],
+        'session_timeout_minutes' => [0, 1440, 'Timeout sesi'],
     ];
     foreach ($integerRules as $key => [$minimum, $maximum, $label]) {
         if (array_key_exists($key, $values)) {
@@ -131,7 +132,12 @@ function validateSettings(array $values): array
 
 function publicSettings(array $settings): array
 {
-    foreach (['remote_port', 'compression_level', 'minimum_free_bytes'] as $key) {
+    foreach ([
+        'remote_port',
+        'compression_level',
+        'minimum_free_bytes',
+        'session_timeout_minutes',
+    ] as $key) {
         $settings[$key] = (int) ($settings[$key] ?? 0);
     }
     return $settings;
@@ -438,6 +444,28 @@ try {
         requireMethod('POST');
         $auth->logout();
         respond(['ok' => true]);
+    }
+
+    if ($action === 'account_update') {
+        requireMethod('POST');
+        $payload = input();
+        $timeout = validateSettings([
+            'session_timeout_minutes' =>
+                $payload['session_timeout_minutes'] ?? 30,
+        ])['session_timeout_minutes'];
+        $user = $auth->updateAccount(
+            (string) ($payload['current_password'] ?? ''),
+            (string) ($payload['username'] ?? ''),
+            (string) ($payload['new_password'] ?? '')
+        );
+        $database->updateSettings([
+            'session_timeout_minutes' => $timeout,
+        ]);
+        respond([
+            'ok' => true,
+            'user' => ['username' => $user['username']],
+            'session_timeout_minutes' => $timeout,
+        ]);
     }
 
     if ($action === 'reset_database') {

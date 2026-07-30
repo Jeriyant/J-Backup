@@ -30,6 +30,9 @@ final class Auth
 
     public function status(): array
     {
+        if ($this->check() && $this->sessionExpired()) {
+            $this->clearAuthentication();
+        }
         return [
             'setup_required' => $this->database->userCount() === 0,
             'authenticated' => $this->check(),
@@ -61,6 +64,7 @@ final class Auth
         $_SESSION['user_id'] = (int) $user['id'];
         $_SESSION['username'] = $user['username'];
         $_SESSION['csrf_token'] = bin2hex(random_bytes(24));
+        $_SESSION['last_activity_at'] = time();
     }
 
     public function logout(): void
@@ -89,6 +93,45 @@ final class Auth
         if (!$this->check()) {
             throw new HttpException('Silakan masuk.', 401);
         }
+        if ($this->sessionExpired()) {
+            $this->clearAuthentication();
+            throw new HttpException(
+                'Sesi berakhir karena tidak ada aktivitas. Silakan masuk kembali.',
+                401
+            );
+        }
+        if (($_SERVER['HTTP_X_JBACKUP_BACKGROUND'] ?? '') !== '1') {
+            $_SESSION['last_activity_at'] = time();
+        }
+    }
+
+    public function updateAccount(
+        string $currentPassword,
+        string $username,
+        string $newPassword
+    ): array {
+        $user = $this->database->findUserById(
+            (int) ($_SESSION['user_id'] ?? 0)
+        );
+        if (
+            !$user
+            || !password_verify($currentPassword, $user['password_hash'])
+        ) {
+            throw new RuntimeException('Password saat ini salah.');
+        }
+        $passwordHash = null;
+        if ($newPassword !== '') {
+            $this->validatePassword($newPassword);
+            $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
+        }
+        $updated = $this->database->updateUser(
+            (int) $user['id'],
+            $username,
+            $passwordHash
+        );
+        $_SESSION['username'] = $updated['username'];
+        $_SESSION['last_activity_at'] = time();
+        return $updated;
     }
 
     public function csrfToken(): string
@@ -124,6 +167,28 @@ final class Auth
         if (strlen($password) < 1) {
             throw new RuntimeException('Password minimal 1 karakter.');
         }
+    }
+
+    private function sessionExpired(): bool
+    {
+        $timeout = (int) (
+            $this->database->settings()['session_timeout_minutes'] ?? 30
+        );
+        if ($timeout <= 0) {
+            return false;
+        }
+        $lastActivity = (int) ($_SESSION['last_activity_at'] ?? time());
+        return time() - $lastActivity >= $timeout * 60;
+    }
+
+    private function clearAuthentication(): void
+    {
+        unset(
+            $_SESSION['user_id'],
+            $_SESSION['username'],
+            $_SESSION['last_activity_at']
+        );
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(24));
     }
 }
 

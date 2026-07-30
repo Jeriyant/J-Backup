@@ -31,6 +31,7 @@ final class Database
         'language' => 'id',
         'theme' => 'system',
         'github_repository' => '',
+        'session_timeout_minutes' => '30',
     ];
 
     public function __construct(
@@ -546,6 +547,45 @@ final class Database
         $statement->execute([trim($username)]);
         $row = $statement->fetch();
         return $row ?: null;
+    }
+
+    public function findUserById(int $id): ?array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT id, username, password_hash FROM users WHERE id = ?'
+        );
+        $statement->execute([$id]);
+        $row = $statement->fetch();
+        return $row ?: null;
+    }
+
+    public function updateUser(
+        int $id,
+        string $username,
+        ?string $passwordHash = null
+    ): array {
+        $username = trim($username);
+        if (!preg_match('/^[A-Za-z0-9_.-]{3,64}$/', $username)) {
+            throw new RuntimeException(
+                'Username harus berisi 3–64 karakter yang valid.'
+            );
+        }
+        $statement = $passwordHash === null
+            ? $this->pdo->prepare(
+                'UPDATE users SET username = ? WHERE id = ?'
+            )
+            : $this->pdo->prepare(
+                'UPDATE users SET username = ?, password_hash = ? WHERE id = ?'
+            );
+        $passwordHash === null
+            ? $statement->execute([$username, $id])
+            : $statement->execute([$username, $passwordHash, $id]);
+
+        $user = $this->findUserById($id);
+        if (!$user) {
+            throw new RuntimeException('Akun administrator tidak ditemukan.');
+        }
+        return $user;
     }
 
     public function settings(): array

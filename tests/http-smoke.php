@@ -211,6 +211,37 @@ try {
         'Default user SSH dan folder aplikasi pertama tidak benar.'
     );
 
+    $wrongAccountPassword = $request('account_update', 'POST', [
+        'username' => 'operator',
+        'current_password' => 'salah',
+        'new_password' => '',
+        'session_timeout_minutes' => 15,
+    ]);
+    assertHttp(
+        $wrongAccountPassword['status'] === 400,
+        'Pengaturan akun menerima password saat ini yang salah.'
+    );
+    $accountUpdate = $request('account_update', 'POST', [
+        'username' => 'operator',
+        'current_password' => 'x',
+        'new_password' => 'y',
+        'session_timeout_minutes' => 15,
+    ]);
+    assertHttp(
+        $accountUpdate['status'] === 200
+            && $accountUpdate['body']['user']['username'] === 'operator'
+            && $accountUpdate['body']['session_timeout_minutes'] === 15,
+        'Username, password, atau timeout sesi gagal diperbarui.'
+    );
+    $accountDashboard = $request('dashboard');
+    assertHttp(
+        $accountDashboard['status'] === 200
+            && $accountDashboard['body']['user']['username'] === 'operator'
+            && $accountDashboard['body']['settings']['session_timeout_minutes']
+                === 15,
+        'Dashboard tidak memuat pengaturan akun terbaru.'
+    );
+
     $backupRoot = $root . '/backups';
     $realtimeRoot = $root . '/realtime';
     mkdir($backupRoot . '/2026/07/30', 0770, true);

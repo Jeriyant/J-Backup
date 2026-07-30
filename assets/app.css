@@ -255,8 +255,51 @@ h1, h2, h3,
     color: var(--surface);
     font-style: normal;
 }
-.logout-chip { border: 0; background: transparent; cursor: pointer; }
-.logout-chip:hover { color:var(--red); }
+.account-control { position:relative; }
+.account-chevron { font-size:12px; opacity:.58; transition:transform .18s ease; }
+.user-chip[aria-expanded="true"] .account-chevron { transform:rotate(180deg); }
+.account-menu {
+    position:absolute;
+    z-index:40;
+    top:calc(100% + 10px);
+    right:0;
+    width:255px;
+    padding:8px;
+    border:1px solid var(--line);
+    border-radius:16px;
+    background:var(--panel);
+    box-shadow:0 18px 55px rgba(0,0,0,.24);
+}
+.account-menu button {
+    width:100%;
+    display:flex;
+    align-items:center;
+    gap:11px;
+    padding:11px;
+    border:0;
+    border-radius:11px;
+    color:var(--text);
+    background:transparent;
+    text-align:left;
+    cursor:pointer;
+}
+.account-menu button:hover { background:var(--soft); }
+.account-menu button span:last-child { display:grid; gap:2px; }
+.account-menu small { color:var(--muted); font-size:10px; }
+.account-menu-icon {
+    display:grid;
+    place-items:center;
+    width:30px;
+    height:30px;
+    border-radius:9px;
+    background:color-mix(in srgb,var(--blue) 14%,transparent);
+    color:var(--blue);
+}
+.account-menu .account-logout { color:var(--red); }
+.account-menu .account-logout .account-menu-icon {
+    background:color-mix(in srgb,var(--red) 12%,transparent);
+    color:var(--red);
+}
 .button {
     display:inline-flex;
     align-items:center;
@@ -830,6 +873,15 @@ button.file-name { cursor:pointer; }
 button.file-name:hover { color:var(--blue); }
 .file-actions { display:flex; justify-content:flex-end; }
 .download-button { display:grid; text-decoration:none; }
+.download-button svg {
+    width:17px;
+    height:17px;
+    fill:none;
+    stroke:currentColor;
+    stroke-width:2;
+    stroke-linecap:round;
+    stroke-linejoin:round;
+}
 .storage-loading {
     display:flex;
     min-height:230px;
@@ -992,6 +1044,28 @@ button.file-name:hover { color:var(--blue); }
 .about-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .about-hero { display:flex; flex-direction:column; align-items:flex-start; }
 .about-hero .brand { margin-bottom:28px; }
+.developer-card { grid-column:1 / -1; }
+.developer-heading { display:flex; align-items:center; gap:16px; margin-top:18px; }
+.developer-heading h2 { margin-bottom:5px; }
+.developer-heading p { margin:0; color:var(--muted); }
+.developer-mark {
+    display:grid;
+    place-items:center;
+    width:54px;
+    height:54px;
+    border-radius:16px;
+    background:var(--text);
+    color:var(--bg);
+    font-family:var(--font-display);
+    font-size:24px;
+    font-weight:800;
+}
+.developer-location {
+    margin:20px 0 0;
+    padding-top:18px;
+    border-top:1px solid var(--line);
+    color:var(--muted);
+}
 .about-actions { display:flex; justify-content:flex-end; gap:10px; }
 .danger-zone {
     grid-column:1/-1;
@@ -1093,7 +1167,8 @@ button.file-name:hover { color:var(--blue); }
 @media (max-width:590px) {
     .brand-copy { display:none; }
     .topbar { align-items:flex-start; }
-    .user-chip { display:none; }
+    .user-chip { font-size:0; }
+    .user-chip i, .user-chip .account-chevron { font-size:12px; }
     .top-actions .button { width:42px; overflow:hidden; padding:0; font-size:0; }
     .top-actions .button > span { margin:0; font-size:11px; }
     .hero { min-height:255px; align-items:flex-start; padding:25px; }

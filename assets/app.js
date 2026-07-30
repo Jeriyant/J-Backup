@@ -32,6 +32,9 @@ const app = document.querySelector("#app");
         explorerKind: "backup",
         disks: null,
         latencyMs: null,
+        accountMenu: false,
+        lastActivityAt: Date.now(),
+        idleTimer: null,
     };
 
     const escapeHtml = (value) => String(value ?? "")
@@ -100,7 +103,12 @@ const app = document.querySelector("#app");
         return `Setiap hari pukul ${schedule.time}`;
     };
 
-    async function api(action, { method = "GET", body, query = {} } = {}) {
+    async function api(action, {
+        method = "GET",
+        body,
+        query = {},
+        background = false,
+    } = {}) {
         const parameters = new URLSearchParams({ action, ...query });
         const response = await fetch(`api.php?${parameters.toString()}`, {
             method,
@@ -108,6 +116,7 @@ const app = document.querySelector("#app");
             headers: {
                 "Content-Type": "application/json",
                 ...(state.csrf ? { "X-CSRF-Token": state.csrf } : {}),
+                ...(background ? { "X-JBACKUP-Background": "1" } : {}),
             },
             body: body === undefined ? undefined : JSON.stringify(body),
         });
@@ -162,9 +171,9 @@ const app = document.querySelector("#app");
             </main>`;
     }
 
-    async function loadDashboard(render = true) {
+    async function loadDashboard(render = true, background = false) {
         const started = performance.now();
-        state.dashboard = await api("dashboard");
+        state.dashboard = await api("dashboard", { background });
         state.latencyMs = Math.max(0, Math.round(performance.now() - started));
         if (render) {
             renderApp();
@@ -254,7 +263,25 @@ const app = document.querySelector("#app");
                     <header class="topbar">
                         <div><p class="eyebrow">${escapeHtml(title.toUpperCase())}</p><h1>${escapeHtml(title)}</h1></div>
                         <div class="top-actions">
-                            <button class="user-chip logout-chip" data-action="logout" title="Keluar"><i>${escapeHtml(dashboard.user.username.slice(0, 1).toUpperCase())}</i>${escapeHtml(dashboard.user.username)}</button>
+                            <div class="account-control">
+                                <button class="user-chip" data-action="account-menu"
+                                    aria-expanded="${state.accountMenu}" title="Menu akun">
+                                    <i>${escapeHtml(dashboard.user.username.slice(0, 1).toUpperCase())}</i>
+                                    ${escapeHtml(dashboard.user.username)}
+                                    <span class="account-chevron">⌄</span>
+                                </button>
+                                ${state.accountMenu ? `
+                                    <div class="account-menu">
+                                        <button data-action="account-settings">
+                                            <span class="account-menu-icon">⚙</span>
+                                            <span><strong>Pengaturan akun</strong><small>Username, password & timeout</small></span>
+                                        </button>
+                                        <button class="account-logout" data-action="logout">
+                                            <span class="account-menu-icon">↪</span>
+                                            <span><strong>Logout</strong><small>Keluar dari aplikasi</small></span>
+                                        </button>
+                                    </div>` : ""}
+                            </div>
                             <button class="button ghost" data-action="manual"><span>▶</span>Jalankan manual</button>
                         </div>
                     </header>
@@ -581,7 +608,11 @@ const app = document.querySelector("#app");
                                     <a class="row-button download-button"
                                         href="api.php?action=${kind}_download&path=${encodeURIComponent(entry.path)}"
                                         download="${escapeHtml(entry.name)}" title="Download ${escapeHtml(entry.name)}"
-                                        aria-label="Download ${escapeHtml(entry.name)}">⇩</a>` : `
+                                        aria-label="Download ${escapeHtml(entry.name)}">
+                                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 18v2h14v-2"/>
+                                            </svg>
+                                        </a>` : `
                                     <button class="row-button" data-storage-path="${escapeHtml(entry.path)}"
                                         aria-label="Buka ${escapeHtml(entry.name)}">→</button>`}</span>
                             </div>`).join("")}
@@ -690,7 +721,62 @@ const app = document.querySelector("#app");
                     <button class="button primary" type="submit"><span>✓</span>Simpan repository</button>
                 </div>
             </form>
+            <article class="panel developer-card">
+                <p class="eyebrow">TENTANG PENGEMBANG</p>
+                <div class="developer-heading">
+                    <span class="developer-mark">J</span>
+                    <div><h2>JERIYANT - BARAMCITY</h2>
+                        <p>Seorang Penikmat Teknologi Kelas Berat</p></div>
+                </div>
+                <p class="developer-location">Laboratorium uji Berbasis di suatu daerah terdalam kalimantan</p>
+            </article>
         </div>`;
+    }
+
+    function accountDialog() {
+        const timeout = Number(
+            state.dashboard?.settings?.session_timeout_minutes ?? 30
+        );
+        showModal(`
+            <p class="eyebrow">PENGATURAN AKUN</p>
+            <h2>Kelola administrator</h2>
+            <p class="muted">Ubah identitas login dan tentukan kapan sesi berakhir jika tidak ada aktivitas.</p>
+            <form class="form" data-form="account-settings">
+                <label>Username
+                    <input name="username" value="${escapeHtml(state.dashboard.user.username)}"
+                        minlength="3" maxlength="64" autocomplete="username" required>
+                </label>
+                <label>Password saat ini
+                    <input name="current_password" type="password" minlength="1"
+                        autocomplete="current-password" required>
+                    <small>Diperlukan untuk menyimpan perubahan akun.</small>
+                </label>
+                <label>Password baru (opsional)
+                    <input name="new_password" type="password" minlength="1"
+                        autocomplete="new-password" placeholder="Biarkan kosong jika tidak diubah">
+                </label>
+                <label>Logout otomatis
+                    <select name="session_timeout_minutes">
+                        ${[
+                            [0, "Tidak pernah"],
+                            [5, "5 menit"],
+                            [15, "15 menit"],
+                            [30, "30 menit"],
+                            [60, "1 jam"],
+                            [120, "2 jam"],
+                            [240, "4 jam"],
+                            [480, "8 jam"],
+                        ].map(([value, label]) => `
+                            <option value="${value}" ${timeout === value ? "selected" : ""}>${label}</option>
+                        `).join("")}
+                    </select>
+                    <small>Dihitung sejak aktivitas terakhir pada halaman ini.</small>
+                </label>
+                <button class="button primary wide" type="submit">
+                    <span>✓</span>Simpan pengaturan akun
+                </button>
+            </form>
+        `);
     }
 
     function sourceDialog(source = null) {
@@ -929,6 +1015,7 @@ const app = document.querySelector("#app");
         if (!target) return;
         try {
             if (target.dataset.tab) {
+                state.accountMenu = false;
                 state.tab = target.dataset.tab;
                 renderApp();
                 if (state.tab === "storage") {
@@ -964,10 +1051,20 @@ const app = document.querySelector("#app");
                 const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
                 document.documentElement.dataset.theme = next;
                 localStorage.setItem("jbackup-theme", next);
+            } else if (target.dataset.action === "account-menu") {
+                state.accountMenu = !state.accountMenu;
+                renderApp();
+            } else if (target.dataset.action === "account-settings") {
+                state.accountMenu = false;
+                renderApp();
+                accountDialog();
             } else if (target.dataset.action === "logout") {
+                state.accountMenu = false;
                 await api("logout", { method: "POST", body: {} });
                 state.dashboard = null;
                 state.selected.clear();
+                if (state.poller) clearInterval(state.poller);
+                state.poller = null;
                 await boot();
             } else if (target.dataset.action === "add") sourceDialog();
             else if (target.dataset.action === "manual") manualDialog();
@@ -1121,6 +1218,15 @@ const app = document.querySelector("#app");
                     body: data,
                 });
                 await boot();
+            } else if (kind === "account-settings") {
+                const result = await api("account_update", {
+                    method: "POST",
+                    body: data,
+                });
+                state.lastActivityAt = Date.now();
+                closeModal();
+                toast(`Akun ${result.user.username} berhasil diperbarui.`);
+                await loadDashboard();
             } else if (kind === "source-add" || kind === "source-edit") {
                 data.paths = String(data.paths || "")
                     .split(/\r?\n/)
@@ -1210,11 +1316,12 @@ const app = document.querySelector("#app");
                 renderAuth(status.setup_required);
                 return;
             }
+            state.lastActivityAt = Date.now();
             await loadDashboard();
             if (!state.poller) {
                 state.poller = setInterval(() => {
                     if (document.visibilityState === "visible" && state.mode === "ready") {
-                        loadDashboard(false).then(() => {
+                        loadDashboard(false, true).then(() => {
                             const editing = document.querySelector("input:focus, textarea:focus, select:focus");
                             if (!modal.open && !editing && state.tab !== "settings") renderApp();
                         }).catch(() => {});
@@ -1229,5 +1336,31 @@ const app = document.querySelector("#app");
 
     const savedTheme = localStorage.getItem("jbackup-theme");
     document.documentElement.dataset.theme = savedTheme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    const recordActivity = () => {
+        if (state.mode === "ready") state.lastActivityAt = Date.now();
+    };
+    ["pointerdown", "keydown", "input", "touchstart"].forEach((eventName) => {
+        document.addEventListener(eventName, recordActivity, { passive: true });
+    });
+    state.idleTimer = setInterval(async () => {
+        if (state.mode !== "ready" || !state.dashboard) return;
+        const minutes = Number(
+            state.dashboard.settings.session_timeout_minutes ?? 30
+        );
+        if (minutes <= 0 || Date.now() - state.lastActivityAt < minutes * 60000) {
+            return;
+        }
+        state.mode = "logging-out";
+        try {
+            await api("logout", { method: "POST", body: {} });
+        } catch (_) {
+            // The server may already have expired the session.
+        }
+        state.dashboard = null;
+        if (state.poller) clearInterval(state.poller);
+        state.poller = null;
+        await boot();
+        toast("Sesi berakhir karena tidak ada aktivitas.");
+    }, 15000);
     boot();
 })();
