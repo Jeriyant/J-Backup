@@ -539,7 +539,7 @@ const app = document.querySelector("#app");
                             <input type="checkbox" data-select-id="${item.id}" ${state.selected.has(item.id) ? "checked" : ""} aria-label="Pilih ${escapeHtml(item.name)}">
                             <div class="database-icon">${escapeHtml(sourceInitials(item.name))}</div>
                             <div class="database-copy"><div class="database-title">
-                                <span class="source-id">ID ${escapeHtml(item.id)}</span>
+                                <span class="source-id">${escapeHtml(item.id)}</span>
                                 <strong>${escapeHtml(item.name)}</strong>
                             </div>
                                 <small>${item.paths.map((path) => escapeHtml(path.path)).join(" · ")}</small></div>
@@ -1021,10 +1021,10 @@ const app = document.querySelector("#app");
         showModal(`
             <p class="eyebrow danger-copy">RESET DATABASE</p>
             <h2>Kembalikan aplikasi ke setup awal?</h2>
-            <p class="muted">Semua data aplikasi dan file SSH lokal akan dihapus permanen. Jika SSH sedang terhubung, public key juga akan dicabut dari server sumber. Arsip backup tetap dipertahankan.</p>
+            <p class="muted">Semua data aplikasi dan file SSH lokal akan dihapus permanen. Public key pada server sumber tidak dicabut oleh proses ini. Arsip backup tetap dipertahankan.</p>
             <div class="reset-warning">
-                <strong>Pembersihan SSH otomatis</strong>
-                <span>Server sumber harus dapat dihubungi agar key di authorized_keys dapat dicabut sebelum reset dilanjutkan.</span>
+                <strong>Public key server dipertahankan</strong>
+                <span>Gunakan Disconnect sebelum reset apabila public key juga ingin dicabut dari server sumber.</span>
             </div>
             <form class="form" data-form="database-reset">
                 <label>Ketik <code>RESET</code> untuk konfirmasi
@@ -1552,48 +1552,6 @@ const app = document.querySelector("#app");
                     method: "POST",
                     body: data,
                 });
-                if (result.ssh_cleanup_required && result.task?.id) {
-                    let terminalLog = result.task.log
-                        || "Tugas pencabutan public key dimasukkan ke antrean.\nMenunggu worker...";
-                    showModal(`
-                        <div class="ssh-wait"><i></i>
-                            <p class="eyebrow">PEMBERSIHAN SSH</p>
-                            <h2>Mencabut public key sebelum reset</h2>
-                            <p class="muted" id="ssh-progress-status">Menunggu worker menjalankan perintah.</p>
-                            <pre class="ssh-terminal" id="ssh-terminal" aria-live="polite">${escapeHtml(terminalLog)}</pre>
-                        </div>
-                    `, true);
-                    try {
-                        await waitForSshTask(result.task.id, (current) => {
-                            terminalLog = current.log || terminalLog;
-                            const output = document.querySelector("#ssh-terminal");
-                            if (output) {
-                                output.textContent = terminalLog;
-                                output.scrollTop = output.scrollHeight;
-                            }
-                            const status = document.querySelector("#ssh-progress-status");
-                            if (status) {
-                                status.textContent = current.status === "queued"
-                                    ? "Menunggu worker mengambil tugas."
-                                    : "Worker sedang mencabut key remote dan membersihkan key lokal.";
-                            }
-                        });
-                    } catch (error) {
-                        terminalLog = error.task?.log || terminalLog;
-                        showModal(`
-                            <p class="eyebrow danger-copy">RESET DIBATALKAN</p>
-                            <h2>Public key belum berhasil dicabut</h2>
-                            <p class="error-box">${escapeHtml(error.message)}</p>
-                            <p class="muted">Data aplikasi dan key lokal tetap dipertahankan agar pencabutan dapat dicoba kembali.</p>
-                            <pre class="ssh-terminal">${escapeHtml(terminalLog)}</pre>
-                        `, true);
-                        throw error;
-                    }
-                    result = await api("reset_database", {
-                        method: "POST",
-                        body: data,
-                    });
-                }
                 closeModal();
                 if (state.poller) clearInterval(state.poller);
                 state.poller = null;
