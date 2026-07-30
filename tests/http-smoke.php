@@ -197,6 +197,18 @@ try {
     );
     $csrf = $setup['body']['csrf_token'];
 
+    $initialDashboard = $request('dashboard');
+    $applicationRoot = str_replace('\\', '/', dirname(__DIR__));
+    assertHttp(
+        $initialDashboard['status'] === 200
+            && $initialDashboard['body']['settings']['remote_user'] === 'root'
+            && $initialDashboard['body']['settings']['staging_dir']
+                === $applicationRoot . '/Realtime-Data'
+            && $initialDashboard['body']['settings']['backup_dir']
+                === $applicationRoot . '/Hasil-Backup',
+        'Default user SSH dan folder aplikasi pertama tidak benar.'
+    );
+
     $backupRoot = $root . '/backups';
     mkdir($backupRoot . '/2026/07/30', 0770, true);
     file_put_contents(

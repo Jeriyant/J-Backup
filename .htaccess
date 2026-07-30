@@ -2,7 +2,7 @@ Options -Indexes
 
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteRule ^(?:bin|deploy|scripts|src|storage|tests)(?:/|$) - [F,L,NC]
+    RewriteRule ^(?:bin|deploy|scripts|src|storage|tests|Realtime-Data|Hasil-Backup)(?:/|$) - [F,L,NC]
     RewriteRule ^(?:README\.md|\.gitignore)$ - [F,L,NC]
 </IfModule>
 

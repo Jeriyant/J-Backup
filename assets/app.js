@@ -482,9 +482,10 @@ const app = document.querySelector("#app");
         return `<form class="grid settings-grid form" data-form="settings">
             <section class="panel"><div class="panel-heading"><div><p class="eyebrow">KONEKSI SUMBER</p><h2>SSH & rsync</h2></div></div>
                 <div class="form-grid">
-                    <label>Host sumber<input name="remote_host" value="${escapeHtml(s.remote_host)}" placeholder="192.168.1.10"></label>
+                    <label>Host sumber<input name="remote_host" value="${escapeHtml(s.remote_host)}" placeholder="192.168.1.1"></label>
                     <label>Port SSH<input name="remote_port" type="number" min="1" max="65535" value="${s.remote_port}"></label>
-                    <label>User SSH<input name="remote_user" value="${escapeHtml(s.remote_user)}"></label>
+                    <label>User SSH<input name="remote_user" value="${escapeHtml(s.remote_user)}" placeholder="root">
+                        <small>Bebas diisi sesuai user yang tersedia pada server sumber.</small></label>
                     <label>Password SSH<span class="password-control">
                         <input id="ssh-password" name="ssh_password" type="password" autocomplete="current-password"
                             placeholder="${s.ssh_password_saved ? "Password terenkripsi sudah tersimpan" : "Diperlukan saat setup pertama"}">
@@ -505,7 +506,8 @@ const app = document.querySelector("#app");
                     <label>Komentar key<input name="ssh_key_comment" maxlength="128" value="${escapeHtml(s.ssh_key_comment)}" placeholder="Jeriyant-Key-RSA"></label>
                     <label class="span-2">Private key<input name="ssh_key_path" value="${escapeHtml(s.ssh_key_path)}"></label>
                     <label class="span-2">Root database remote<input name="remote_root" value="${escapeHtml(s.remote_root)}"></label>
-                    <label class="span-2">Folder staging lokal<input name="staging_dir" value="${escapeHtml(s.staging_dir)}"></label>
+                    <label class="span-2">Folder tujuan sinkronisasi<input name="staging_dir" value="${escapeHtml(s.staging_dir)}">
+                        <small>Data rsync terbaru disimpan di sini sebelum dibuat menjadi backup.</small></label>
                     <div class="ssh-tools span-2">
                         <button class="button ${sshConnected ? "danger ssh-disconnect" : "ssh-setup"}" type="button"
                             data-action="${sshConnected ? "ssh-disconnect" : "ssh-connect"}">

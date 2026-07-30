@@ -81,6 +81,12 @@ try {
         $database->sshTask('legacy-ssh-task')['status'] === 'success',
         'Migrasi tipe task SSH menghilangkan riwayat lama.'
     );
+    assertTrue(
+        $database->settings()['remote_user'] === 'root'
+            && $database->settings()['staging_dir'] === $root . '/Realtime-Data'
+            && $database->settings()['backup_dir'] === $root . '/Hasil-Backup',
+        'Default user atau folder aplikasi pertama tidak benar.'
+    );
     $database->updateSettings([
         'staging_dir' => '/var/lib/j-backup/staging',
         'ssh_key_path' => '/var/lib/j-backup/.ssh/id_ed25519',
@@ -310,8 +316,11 @@ try {
         'Reset tidak mengembalikan jadwal bawaan nonaktif.'
     );
     assertTrue(
-        $database->settings()['remote_host'] === '',
-        'Reset tidak mengembalikan konfigurasi bawaan.'
+        $database->settings()['remote_host'] === ''
+            && $database->settings()['remote_user'] === 'root'
+            && $database->settings()['staging_dir'] === $root . '/Realtime-Data'
+            && $database->settings()['backup_dir'] === $root . '/Hasil-Backup',
+        'Reset tidak mengembalikan konfigurasi dan folder bawaan.'
     );
     assertTrue(
         is_file($job['output_path']),

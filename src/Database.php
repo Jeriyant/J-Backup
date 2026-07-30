@@ -15,10 +15,10 @@ final class Database
     private const DEFAULT_SETTINGS = [
         'remote_host' => '',
         'remote_port' => '22',
-        'remote_user' => 'backup',
+        'remote_user' => 'root',
         'remote_root' => '/var/lib/mysql',
         'staging_dir' => '',
-        'backup_dir' => '/var/backups/j-backup',
+        'backup_dir' => '',
         'compression_level' => '9',
         'filename_template' => '{date}_{time}-{name}.7z',
         'ssh_key_path' => '',
@@ -33,16 +33,29 @@ final class Database
         'github_repository' => '',
     ];
 
-    public function __construct(string $file)
+    public function __construct(
+        string $file,
+        ?string $applicationDirectory = null
+    )
     {
         $directory = rtrim(dirname($file), '/\\');
+        $applicationDirectory = rtrim(
+            $applicationDirectory ?? $directory,
+            '/\\'
+        );
         if (!is_dir($directory) && !mkdir($directory, 0770, true) && !is_dir($directory)) {
             throw new RuntimeException("Tidak dapat membuat direktori data: {$directory}");
         }
 
+        $realtimeDirectory = getenv('JBACKUP_REALTIME_DIR');
         $backupDirectory = getenv('JBACKUP_BACKUP_DIR');
         $this->defaultSettings = self::DEFAULT_SETTINGS;
-        $this->defaultSettings['staging_dir'] = $directory . '/staging';
+        $this->defaultSettings['staging_dir'] =
+            is_string($realtimeDirectory) && trim($realtimeDirectory) !== ''
+                ? rtrim($realtimeDirectory, '/\\')
+                : $applicationDirectory . '/Realtime-Data';
+        $this->defaultSettings['backup_dir'] =
+            $applicationDirectory . '/Hasil-Backup';
         $this->defaultSettings['ssh_key_path'] = $directory . '/.ssh/id_ed25519';
         if (is_string($backupDirectory) && trim($backupDirectory) !== '') {
             $this->defaultSettings['backup_dir'] = rtrim($backupDirectory, '/\\');

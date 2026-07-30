@@ -9,7 +9,8 @@ fi
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 install_dir="$(readlink -m -- "${JBACKUP_INSTALL_DIR:-${project_dir}}")"
 data_dir="$(readlink -m -- "${JBACKUP_DATA_DIR:-${install_dir}/storage}")"
-backup_dir="$(readlink -m -- "${JBACKUP_BACKUP_DIR:-/var/backups/j-backup}")"
+realtime_dir="$(readlink -m -- "${JBACKUP_REALTIME_DIR:-${install_dir}/Realtime-Data}")"
+backup_dir="$(readlink -m -- "${JBACKUP_BACKUP_DIR:-${install_dir}/Hasil-Backup}")"
 log_dir="$(readlink -m -- "${JBACKUP_LOG_DIR:-/var/log/j-backup}")"
 app_url_path="${JBACKUP_URL_PATH:-/$(basename "${install_dir}")}"
 app_url_path="/${app_url_path#/}"
@@ -23,7 +24,8 @@ if [[ ! "${app_url_path}" =~ ^/[A-Za-z0-9._~/-]+$ ]] \
   exit 1
 fi
 
-for runtime_path in "${install_dir}" "${data_dir}" "${backup_dir}" "${log_dir}"; do
+for runtime_path in \
+  "${install_dir}" "${data_dir}" "${realtime_dir}" "${backup_dir}" "${log_dir}"; do
   if [[ "${runtime_path}" == *$'\n'* || "${runtime_path}" == *'"'* ]]; then
     echo "Lokasi mengandung karakter yang tidak didukung: ${runtime_path}" >&2
     exit 1
@@ -140,10 +142,12 @@ for code_path in src assets bin deploy scripts index.php api.php og.png .htacces
   fi
 done
 install -d -m 0770 -o jbackup -g jbackup \
-  "${data_dir}" "${data_dir}/staging" "${backup_dir}" "${log_dir}"
+  "${data_dir}" "${data_dir}/staging" "${realtime_dir}" \
+  "${backup_dir}" "${log_dir}"
 install -d -m 0770 -o jbackup -g jbackup "${data_dir}/.ssh"
 chown -R jbackup:jbackup "${data_dir}"
-chmod 0770 "${data_dir}" "${data_dir}/staging"
+chmod 0770 "${data_dir}" "${data_dir}/staging" \
+  "${realtime_dir}" "${backup_dir}"
 chmod 0770 "${data_dir}/.ssh"
 if [[ ! -f "${data_dir}/secret.key" ]]; then
   umask 0027
@@ -159,6 +163,7 @@ render_template() {
 
   JBACKUP_TEMPLATE_APP_DIR="${install_dir}" \
   JBACKUP_TEMPLATE_DATA_DIR="${data_dir}" \
+  JBACKUP_TEMPLATE_REALTIME_DIR="${realtime_dir}" \
   JBACKUP_TEMPLATE_BACKUP_DIR="${backup_dir}" \
   JBACKUP_TEMPLATE_LOG_DIR="${log_dir}" \
   JBACKUP_TEMPLATE_URL_PATH="${app_url_path}" \
@@ -176,6 +181,7 @@ render_template() {
         "@@APP_DIR_REGEX@@" => preg_quote($appDirectory, "#"),
         "@@APP_DIR_SYSTEMD@@" => $systemdPath($appDirectory),
         "@@DATA_DIR@@" => (string) getenv("JBACKUP_TEMPLATE_DATA_DIR"),
+        "@@REALTIME_DIR@@" => (string) getenv("JBACKUP_TEMPLATE_REALTIME_DIR"),
         "@@BACKUP_DIR@@" => (string) getenv("JBACKUP_TEMPLATE_BACKUP_DIR"),
         "@@LOG_DIR@@" => (string) getenv("JBACKUP_TEMPLATE_LOG_DIR"),
         "@@APP_URL_PATH@@" => (string) getenv("JBACKUP_TEMPLATE_URL_PATH"),
@@ -232,9 +238,7 @@ echo
 echo "J-BACKUP berhasil dipasang."
 echo "Lokasi aplikasi : ${install_dir}"
 echo "Lokasi database : ${data_dir}/j-backup.sqlite"
+echo "Data realtime   : ${realtime_dir}"
 echo "Lokasi backup   : ${backup_dir}"
 echo "Buka            : http://ALAMAT-SERVER${app_url_path}/"
-echo
-echo "Tambahkan SSH private key:"
-echo "  ${data_dir}/.ssh/id_ed25519"
-echo "Owner harus jbackup:jbackup dan permission 600."
+echo "Key SSH         : dikelola otomatis oleh aplikasi"

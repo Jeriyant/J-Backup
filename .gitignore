@@ -1,5 +1,7 @@
 /storage/*
 !/storage/.gitignore
+/Realtime-Data/
+/Hasil-Backup/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

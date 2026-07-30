@@ -17,7 +17,10 @@ if (!is_dir($dataDirectory)) {
     mkdir($dataDirectory, 0770, true);
 }
 
-$database = new Database($dataDirectory . '/j-backup.sqlite');
+$database = new Database(
+    $dataDirectory . '/j-backup.sqlite',
+    $projectRoot
+);
 $secretStore = new SecretStore($database, $dataDirectory);
 $auth = new Auth($database);
 if (PHP_SAPI !== 'cli') {

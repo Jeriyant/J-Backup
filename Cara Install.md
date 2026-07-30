@@ -8,6 +8,8 @@ Secara bawaan, database dan data runtime disimpan di dalam folder aplikasi:
 
 ```text
 <folder-aplikasi>/storage/j-backup.sqlite
+<folder-aplikasi>/Realtime-Data
+<folder-aplikasi>/Hasil-Backup
 ```
 
 Web dan worker selalu diarahkan ke file SQLite yang sama.
@@ -53,7 +55,8 @@ Secara bawaan installer menggunakan:
 ```text
 Lokasi aplikasi : folder tempat script berada
 Lokasi data     : <folder-aplikasi>/storage
-Lokasi backup   : /var/backups/j-backup
+Data realtime   : <folder-aplikasi>/Realtime-Data
+Lokasi backup   : <folder-aplikasi>/Hasil-Backup
 URL             : /<nama-folder>/
 ```
 
@@ -69,7 +72,8 @@ Installer akan:
   `sshpass`;
 - menampilkan verifikasi setiap paket dengan status `OK` atau `GAGAL`;
 - membuat user sistem `jbackup`;
-- menyiapkan database, staging, backup, SSH, dan key enkripsi;
+- menyiapkan database, folder `Realtime-Data`, `Hasil-Backup`, SSH, dan key
+  enkripsi;
 - membuat konfigurasi Apache berdasarkan lokasi aplikasi;
 - membuat service worker berdasarkan lokasi aplikasi;
 - mengaktifkan timer worker setiap 15 detik;
@@ -81,7 +85,8 @@ Installer menerima variabel berikut:
 
 ```text
 JBACKUP_INSTALL_DIR  lokasi akhir aplikasi
-JBACKUP_DATA_DIR     lokasi database, staging, secret.key, dan key SSH
+JBACKUP_DATA_DIR     lokasi database, secret.key, dan key SSH
+JBACKUP_REALTIME_DIR lokasi tujuan sinkronisasi awal
 JBACKUP_BACKUP_DIR   lokasi hasil backup awal
 JBACKUP_LOG_DIR      lokasi log
 JBACKUP_URL_PATH     path URL Apache
@@ -102,6 +107,7 @@ Contoh memisahkan data dari file aplikasi:
 ```bash
 sudo env \
   JBACKUP_DATA_DIR=/srv/j-backup-data \
+  JBACKUP_REALTIME_DIR=/srv/j-backup-realtime \
   JBACKUP_BACKUP_DIR=/mnt/backup/j-backup \
   bash scripts/install-linux.sh
 ```
@@ -116,6 +122,7 @@ Installer mengatur izin secara otomatis:
 
 - file aplikasi dimiliki `root`;
 - data runtime dan hasil backup dimiliki `jbackup`;
+- folder realtime dan hasil backup disiapkan otomatis oleh installer;
 - user Apache dimasukkan ke grup `jbackup`;
 - `storage/.ssh` menggunakan mode `770` agar worker dapat membuat key dan
   aplikasi web dapat membersihkannya saat Reset Database;
@@ -127,8 +134,12 @@ Untuk contoh aplikasi di `/opt/j-backup`:
 sudo chown -R root:root /opt/j-backup
 sudo chown -R jbackup:jbackup \
   /opt/j-backup/storage \
-  /var/backups/j-backup
-sudo chmod 770 /opt/j-backup/storage /var/backups/j-backup
+  /opt/j-backup/Realtime-Data \
+  /opt/j-backup/Hasil-Backup
+sudo chmod 770 \
+  /opt/j-backup/storage \
+  /opt/j-backup/Realtime-Data \
+  /opt/j-backup/Hasil-Backup
 sudo chmod 640 /opt/j-backup/storage/secret.key
 ```
 
@@ -154,7 +165,8 @@ Saat pertama dibuka:
 
 1. Buat administrator dengan password minimal 1 karakter.
 2. Buka menu **Pengaturan**.
-3. Isi host, port, user, dan password SSH.
+3. Isi host, port, user, dan password SSH. User awal adalah `root`, tetapi
+   bebas diganti sesuai akun pada server sumber.
 4. Simpan pengaturan.
 5. Tekan **Connect** untuk membuat dan memasang public key.
 6. Tekan **Tes koneksi** untuk menguji autentikasi private key.
@@ -259,7 +271,7 @@ filesystem Linux WSL, misalnya:
 /var/lib/j-backup-staging
 ```
 
-Lokasinya dapat diubah dari **Pengaturan → Folder staging lokal**.
+Lokasinya dapat diubah dari **Pengaturan → Folder tujuan sinkronisasi**.
 
 ## 8. Memindahkan aplikasi
 
