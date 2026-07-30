@@ -340,7 +340,7 @@ h1, h2, h3,
 .button.wide { width: 100%; }
 .button[data-action="manual"] { border-color:color-mix(in srgb,var(--amber) 35%,var(--line)); color:var(--amber); }
 .button.manual-action {
-    border-color:var(--line);
+    border:0;
     background:transparent;
     color:var(--ink);
     box-shadow:none;
