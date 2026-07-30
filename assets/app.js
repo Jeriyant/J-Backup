@@ -278,27 +278,73 @@ const app = document.querySelector("#app");
     function renderOverview() {
         const d = state.dashboard;
         const active = d.active_job;
-        const failures = d.jobs.filter((job) => job.status === "failed").length;
+        const system = d.system || {};
+        const workerReady = workerIsReady(d.worker_heartbeat);
+        const activeSources = d.sources.filter((item) => item.enabled);
+        const enabledSchedules = d.schedules.filter((schedule) => schedule.enabled);
+        const recentFailureLimit = Date.now() - 86400000;
+        const failures = d.jobs.filter((job) =>
+            job.status === "failed"
+            && Date.parse(job.finished_at || job.started_at || job.queued_at) >= recentFailureLimit
+        ).length;
         const successes = d.jobs.filter((job) => job.status === "success").length;
-        const next = d.schedules.find((schedule) => schedule.enabled);
         const sshConnected = d.settings.ssh_connected === true;
         const sshTarget = d.settings.ssh_connected_target
             || (d.settings.remote_host
                 ? `${d.settings.remote_user}@${d.settings.remote_host}`
                 : "Host sumber belum diatur");
-        const headline = active
-            ? `${active.type === "sync" ? "Sinkronisasi" : "Backup"} sedang berjalan`
-            : failures ? "Ada pekerjaan yang perlu diperiksa" : "Semua sistem berjalan normal";
-        const detail = active
-            ? `${active.source_name} sedang diproses. ${d.queue_count} pekerjaan menunggu.`
-            : next ? `${next.type === "sync" ? "Sinkronisasi" : "Backup"} aktif: ${scheduleText(next).toLowerCase()}.`
-                : "Aktifkan jadwal atau jalankan pekerjaan secara manual.";
-        const system = d.system || {};
+        const critical = [];
+        const warnings = [];
+        if (!workerReady) critical.push("Worker tidak terhubung");
+        if (!d.disk.available) {
+            critical.push("Folder backup tidak tersedia");
+        } else if (d.disk.free < Number(d.settings.minimum_free_bytes || 0)) {
+            critical.push("Ruang disk di bawah batas minimum");
+        }
+        if (Number(system.cpu_percent) >= 95) critical.push("CPU mencapai batas kritis");
+        else if (Number(system.cpu_percent) >= 80) warnings.push("Penggunaan CPU tinggi");
+        if (Number(system.memory?.used_percent) >= 95) critical.push("Memory mencapai batas kritis");
+        else if (Number(system.memory?.used_percent) >= 80) warnings.push("Penggunaan memory tinggi");
+        if (Number.isFinite(state.latencyMs) && state.latencyMs > 500) {
+            critical.push("Latensi browser sangat tinggi");
+        } else if (Number.isFinite(state.latencyMs) && state.latencyMs > 250) {
+            warnings.push("Latensi browser tinggi");
+        }
+        if (activeSources.length && !sshConnected) warnings.push("SSH sumber belum terhubung");
+        if (!enabledSchedules.length) warnings.push("Tidak ada jadwal aktif");
+        if (failures) warnings.push(`${failures} pekerjaan gagal dalam 24 jam`);
+
+        const healthLevel = critical.length
+            ? "critical"
+            : warnings.length
+                ? "warning"
+                : active
+                    ? "running"
+                    : "healthy";
+        const headline = {
+            critical: "Sistem memerlukan tindakan segera",
+            warning: "Sistem berjalan dengan peringatan",
+            running: `${active?.type === "sync" ? "Sinkronisasi" : "Backup"} sedang berjalan`,
+            healthy: "Seluruh komponen terpantau normal",
+        }[healthLevel];
+        const detail = critical.length || warnings.length
+            ? [...critical, ...warnings].join(" · ")
+            : active
+                ? `${active.source_name} sedang diproses. ${d.queue_count} pekerjaan menunggu.`
+                : "Worker, SSH, disk, resource host, dan jadwal berada dalam kondisi siap.";
+        const healthBadge = {
+            critical: "!",
+            warning: "WARN",
+            running: "RUN",
+            healthy: "OK",
+        }[healthLevel];
         return `
             <div class="grid overview-grid">
-                <article class="hero">
-                    <div><p class="eyebrow">STATUS SISTEM</p><h2>${escapeHtml(headline)}</h2><p>${escapeHtml(detail)}</p></div>
-                    <div class="health"><span>${active ? "RUN" : failures ? "!" : "OK"}</span></div>
+                <article class="hero hero-status-${healthLevel}">
+                    <div class="hero-copy"><p class="eyebrow">KESEHATAN SISTEM</p><h2>${escapeHtml(headline)}</h2>
+                        <p>${escapeHtml(detail)}</p>
+                        <small class="health-scope">Worker · SSH · disk · CPU · memory · jadwal · pekerjaan</small></div>
+                    <div class="health"><span>${healthBadge}</span></div>
                 </article>
                 <div class="metrics">
                     <article class="metric"><p>Sumber aktif</p><strong>${d.sources.filter((item) => item.enabled).length}</strong><small>dari ${d.sources.length} terdaftar</small></article>
@@ -307,7 +353,7 @@ const app = document.querySelector("#app");
                 </div>
                 <article class="panel system-monitor">
                     <div class="panel-heading"><div><p class="eyebrow">HOST SERVER</p><h2>Informasi sistem</h2></div>
-                        <span class="status status-success">Live</span></div>
+                        <span class="status ${workerReady ? "status-success" : "status-failed"}">${workerReady ? "Live" : "Offline"}</span></div>
                     <div class="system-metrics">
                         <div><span>Uptime</span><strong>${duration(system.uptime_seconds)}</strong></div>
                         <div><span>CPU</span><strong>${system.cpu_percent ?? "—"}%</strong><small>${system.cpu_cores || "—"} core</small></div>

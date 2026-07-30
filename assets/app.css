@@ -320,6 +320,22 @@ h1, h2, h3,
     color: #fff;
     box-shadow: var(--shadow);
 }
+.hero-status-healthy {
+    border-color:color-mix(in srgb,var(--success) 52%,#262626);
+    background:linear-gradient(135deg,#050505 0%,color-mix(in srgb,var(--success) 18%,#111) 100%);
+}
+.hero-status-running {
+    border-color:color-mix(in srgb,var(--blue) 60%,#262626);
+    background:linear-gradient(135deg,#050505 0%,color-mix(in srgb,var(--blue) 22%,#111) 100%);
+}
+.hero-status-warning {
+    border-color:color-mix(in srgb,var(--amber) 70%,#262626);
+    background:linear-gradient(135deg,#050505 0%,color-mix(in srgb,var(--amber) 20%,#111) 100%);
+}
+.hero-status-critical {
+    border-color:color-mix(in srgb,var(--red) 78%,#262626);
+    background:linear-gradient(135deg,#050505 0%,color-mix(in srgb,var(--red) 24%,#111) 100%);
+}
 .hero .eyebrow { color: #ffffff; }
 .hero h2 {
     max-width: 560px;
@@ -328,7 +344,8 @@ h1, h2, h3,
     letter-spacing: -.045em;
     line-height: 1.04;
 }
-.hero p:last-child { max-width: 520px; margin: 16px 0 0; color: #b5b5b5; font-size: 12px; line-height: 1.6; }
+.hero-copy > p:last-of-type { max-width: 620px; margin: 16px 0 0; color: #d0d0d0; font-size: 12px; line-height: 1.6; }
+.health-scope { display:block; margin-top:13px; color:#8f8f8f; font-size:9px; letter-spacing:.03em; }
 .health {
     display: grid;
     width: 110px;
@@ -351,6 +368,10 @@ h1, h2, h3,
     font-size: 12px;
     font-weight: 950;
 }
+.hero-status-warning .health span { background:var(--amber); color:#111; font-size:9px; }
+.hero-status-critical .health span { background:var(--red); color:#fff; }
+.hero-status-running .health span { background:var(--blue); color:#fff; }
+.hero-status-healthy .health span { background:var(--success); color:#fff; }
 .metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .metric, .panel {
     border: 1px solid var(--line);
