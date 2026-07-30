@@ -1,0 +1,857 @@
+<?php
+
+declare(strict_types=1);
+
+namespace JBackup;
+
+use DateTimeImmutable;
+use RuntimeException;
+
+final class JobRunner
+{
+    private const MAX_LOG_LENGTH = 200000;
+    private ?string $activeSshTaskId = null;
+
+    public function __construct(
+        private readonly Database $database,
+        private readonly string $runtimeDirectory,
+        private readonly bool $simulate = false,
+        private readonly ?SecretStore $secretStore = null,
+    ) {
+    }
+
+    public function run(): int
+    {
+        if (!is_dir($this->runtimeDirectory)) {
+            mkdir($this->runtimeDirectory, 0770, true);
+        }
+        $lock = fopen($this->runtimeDirectory . '/worker.lock', 'c+');
+        if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
+            return 0;
+        }
+
+        try {
+            $this->database->setSchedulerState(
+                'worker_heartbeat',
+                Database::now()
+            );
+            $this->recoverInterruptedJobs();
+            $this->recoverInterruptedSshTasks();
+            $this->runSshTasks();
+            $this->enqueueDueSchedules();
+            $processed = 0;
+            while ($job = $this->database->nextQueuedJob()) {
+                $this->runJob($job);
+                $processed++;
+            }
+            return $processed;
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    private function recoverInterruptedJobs(): void
+    {
+        $statement = $this->database->pdo()->prepare(
+            <<<'SQL'
+            UPDATE jobs
+            SET status = 'failed', finished_at = ?, error = ?
+            WHERE status IN ('running', 'cancel_requested')
+            SQL
+        );
+        $statement->execute([
+            Database::now(),
+            'Worker berhenti sebelum pekerjaan selesai.',
+        ]);
+    }
+
+    private function recoverInterruptedSshTasks(): void
+    {
+        $statement = $this->database->pdo()->prepare(
+            "UPDATE ssh_tasks
+             SET status = 'failed', finished_at = ?, error = ?
+             WHERE status = 'running'"
+        );
+        $statement->execute([
+            Database::now(),
+            'Worker berhenti sebelum tindakan SSH selesai.',
+        ]);
+    }
+
+    private function runSshTasks(): void
+    {
+        while ($task = $this->database->nextQueuedSshTask()) {
+            $this->activeSshTaskId = $task['id'];
+            $this->appendSshLog("Worker mengambil tugas SSH.\n");
+            try {
+                $result = $task['type'] === 'generate_key'
+                    ? $this->generateSshKey(
+                        $task['payload'],
+                        $task['secret'] ?? []
+                    )
+                    : $this->testSshConnection($task['payload']);
+                $this->database->updateSshTask($task['id'], [
+                    'status' => 'success',
+                    'result' => $result,
+                    'error' => null,
+                    'finished_at' => Database::now(),
+                ]);
+                $this->appendSshLog("Selesai: tindakan SSH berhasil.\n");
+            } catch (\Throwable $error) {
+                $this->appendSshLog("GAGAL: {$error->getMessage()}\n");
+                $this->database->updateSshTask($task['id'], [
+                    'status' => 'failed',
+                    'error' => $error->getMessage(),
+                    'finished_at' => Database::now(),
+                ]);
+            } finally {
+                $this->activeSshTaskId = null;
+            }
+        }
+    }
+
+    private function generateSshKey(array $payload, array $secret = []): array
+    {
+        $config = $this->sshConfig($payload, false);
+        $keyPath = $config['key_path'];
+        $publicPath = $keyPath . '.pub';
+        $keyType = (string) ($payload['ssh_key_type'] ?? 'ed25519');
+        if (!in_array($keyType, ['ed25519', 'rsa4096'], true)) {
+            throw new RuntimeException('Tipe key SSH tidak didukung.');
+        }
+        $comment = trim((string) ($payload['ssh_key_comment'] ?? 'J-BACKUP-Key'));
+        $comment = preg_replace('/[\x00-\x1F\x7F]/', '', $comment) ?: 'J-BACKUP-Key';
+        $comment = substr($comment, 0, 128);
+        $sshDirectory = dirname($keyPath);
+        $this->appendSshLog("Memeriksa folder dan pasangan kunci SSH.\n");
+        if (!is_dir($sshDirectory)) {
+            if (!mkdir($sshDirectory, 0700, true) && !is_dir($sshDirectory)) {
+                throw new RuntimeException('Folder SSH tidak dapat dibuat oleh worker.');
+            }
+        }
+        chmod($sshDirectory, 0700);
+
+        $created = false;
+        if (!is_file($keyPath)) {
+            if ($this->simulate) {
+                file_put_contents($keyPath, "SIMULATED PRIVATE KEY\n");
+                file_put_contents(
+                    $publicPath,
+                    ($keyType === 'rsa4096' ? 'ssh-rsa ' : 'ssh-ed25519 ')
+                        . "AAAAC3NzaC1lZDI1NTE5AAAAIJBACKUPSIMULATED {$comment}"
+                );
+            } else {
+                $this->appendSshLog("Menjalankan ssh-keygen ({$keyType})...\n");
+                $keyCommand = [
+                    '/usr/bin/ssh-keygen',
+                    '-q',
+                    '-t',
+                    $keyType === 'rsa4096' ? 'rsa' : 'ed25519',
+                ];
+                if ($keyType === 'rsa4096') {
+                    array_push($keyCommand, '-b', '4096');
+                }
+                array_push(
+                    $keyCommand,
+                    '-N',
+                    '',
+                    '-C',
+                    $comment,
+                    '-f',
+                    $keyPath
+                );
+                $this->runUtility($keyCommand, 30);
+            }
+            $created = true;
+            $this->appendSshLog("Pasangan kunci SSH berhasil dibuat.\n");
+        } elseif (!is_file($publicPath)) {
+            $this->appendSshLog("Membuat public key dari private key yang tersedia.\n");
+            if ($this->simulate) {
+                file_put_contents(
+                    $publicPath,
+                    'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJBACKUPSIMULATED j-backup'
+                );
+            } else {
+                $derived = $this->runUtility(
+                    ['/usr/bin/ssh-keygen', '-y', '-f', $keyPath],
+                    15
+                );
+                file_put_contents($publicPath, trim($derived['stdout']) . "\n");
+            }
+        } else {
+            $this->appendSshLog("Pasangan kunci sudah tersedia; pembuatan dilewati.\n");
+        }
+
+        chmod($keyPath, 0600);
+        chmod($publicPath, 0644);
+        $publicKey = trim((string) file_get_contents($publicPath));
+        if (!preg_match('/^ssh-(?:ed25519|rsa)\s+/', $publicKey)) {
+            throw new RuntimeException('Public key yang dihasilkan tidak valid.');
+        }
+
+        $result = [
+            'created' => $created,
+            'installed' => false,
+            'key_type' => $keyType,
+            'private_key_path' => $keyPath,
+            'public_key_path' => $publicPath,
+            'public_key' => $publicKey,
+            'message' => $created
+                ? 'Pasangan kunci SSH berhasil dibuat.'
+                : 'Kunci sudah ada; public key ditampilkan kembali.',
+        ];
+
+        if (($payload['install_key'] ?? false) === true) {
+            $password = (string) (
+                $secret['password']
+                ?? $this->secretStore?->get('ssh_password')
+                ?? ''
+            );
+            if ($password === '' || strlen($password) > 1024) {
+                throw new RuntimeException('Password SSH diperlukan untuk memasang public key.');
+            }
+            $connection = $this->sshConfig($payload);
+            $target = $connection['user'] . '@' . $connection['host'];
+            $this->appendSshLog(
+                "Memasang public key ke {$target}:{$connection['port']}...\n"
+            );
+            try {
+                if (!$this->simulate) {
+                    $knownHosts = dirname($keyPath) . '/known_hosts';
+                    $this->runUtility([
+                        '/usr/bin/sshpass',
+                        '-e',
+                        '/usr/bin/ssh-copy-id',
+                        '-i',
+                        $publicPath,
+                        '-p',
+                        (string) $connection['port'],
+                        '-o',
+                        'StrictHostKeyChecking=accept-new',
+                        '-o',
+                        'UserKnownHostsFile=' . $knownHosts,
+                        $connection['user'] . '@' . $connection['host'],
+                    ], 30, ['SSHPASS' => $password]);
+                    @chmod($knownHosts, 0600);
+                }
+            } finally {
+                if ($password !== '') {
+                    sodium_memzero($password);
+                }
+            }
+            $this->appendSshLog(
+                "Public key berhasil dikirim. Menguji login tanpa password...\n"
+            );
+            $test = $this->testSshConnection($payload);
+            $result['installed'] = true;
+            $result['target'] = $test['target'];
+            $result['latency_ms'] = $test['latency_ms'] ?? null;
+            $result['message'] = 'Public key terpasang dan login tanpa password berhasil.';
+        }
+
+        return $result;
+    }
+
+    private function testSshConnection(array $payload): array
+    {
+        $config = $this->sshConfig($payload);
+        $target = $config['user'] . '@' . $config['host'];
+        $this->appendSshLog(
+            "Menguji koneksi ke {$target}:{$config['port']} dengan private key...\n"
+        );
+        if (!is_file($config['key_path'])) {
+            throw new RuntimeException('Private key belum tersedia. Buat kunci terlebih dahulu.');
+        }
+        if ($this->simulate) {
+            $this->appendSshLog("Simulasi koneksi berhasil.\n");
+            return [
+                'connected' => true,
+                'target' => $config['user'] . '@' . $config['host'],
+                'message' => 'Koneksi SSH berhasil.',
+            ];
+        }
+
+        $knownHosts = dirname($config['key_path']) . '/known_hosts';
+        $started = microtime(true);
+        $result = $this->runUtility([
+            '/usr/bin/ssh',
+            '-o',
+            'BatchMode=yes',
+            '-o',
+            'ConnectTimeout=10',
+            '-o',
+            'ConnectionAttempts=1',
+            '-o',
+            'IdentitiesOnly=yes',
+            '-o',
+            'StrictHostKeyChecking=accept-new',
+            '-o',
+            'UserKnownHostsFile=' . $knownHosts,
+            '-o',
+            'LogLevel=ERROR',
+            '-i',
+            $config['key_path'],
+            '-p',
+            (string) $config['port'],
+            $config['user'] . '@' . $config['host'],
+            'printf JBACKUP_CONNECTION_OK',
+        ], 18);
+        if (!str_contains($result['stdout'], 'JBACKUP_CONNECTION_OK')) {
+            throw new RuntimeException('Server merespons, tetapi hasil pengujian tidak dikenali.');
+        }
+        @chmod($knownHosts, 0600);
+        $this->appendSshLog("Server merespons dan autentikasi key diterima.\n");
+
+        return [
+            'connected' => true,
+            'target' => $config['user'] . '@' . $config['host'],
+            'latency_ms' => (int) round((microtime(true) - $started) * 1000),
+            'message' => 'Koneksi SSH dan autentikasi key berhasil.',
+        ];
+    }
+
+    private function sshConfig(array $payload, bool $requireConnection = true): array
+    {
+        $settings = $this->database->settings();
+        $host = trim((string) ($payload['remote_host'] ?? $settings['remote_host']));
+        $user = trim((string) ($payload['remote_user'] ?? $settings['remote_user']));
+        $port = (int) ($payload['remote_port'] ?? $settings['remote_port']);
+        $keyPath = $this->absolutePath(
+            (string) ($payload['ssh_key_path'] ?? $settings['ssh_key_path'])
+        );
+
+        if ($requireConnection) {
+            if (!preg_match('/^[A-Za-z0-9_.:-]+$/', $host)) {
+                throw new RuntimeException('Host SSH belum diisi atau tidak valid.');
+            }
+            if (!preg_match('/^[A-Za-z0-9_.-]+$/', $user)) {
+                throw new RuntimeException('User SSH tidak valid.');
+            }
+            if ($port < 1 || $port > 65535) {
+                throw new RuntimeException('Port SSH tidak valid.');
+            }
+        }
+
+        $allowedDirectory = rtrim($this->runtimeDirectory, '/') . '/.ssh';
+        if (dirname($keyPath) !== $allowedDirectory) {
+            throw new RuntimeException(
+                "Pembuatan dan pengujian kunci hanya diizinkan dalam {$allowedDirectory}."
+            );
+        }
+
+        return [
+            'host' => $host,
+            'user' => $user,
+            'port' => $port,
+            'key_path' => $keyPath,
+        ];
+    }
+
+    private function runUtility(
+        array $command,
+        int $timeoutSeconds,
+        array $environment = []
+    ): array
+    {
+        $processEnvironment = $environment === []
+            ? null
+            : array_merge((array) getenv(), $environment);
+        $process = proc_open(
+            $command,
+            [
+                0 => ['pipe', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['pipe', 'w'],
+            ],
+            $pipes,
+            null,
+            $processEnvironment,
+            ['bypass_shell' => true]
+        );
+        if (!is_resource($process)) {
+            throw new RuntimeException('Utilitas sistem tidak dapat dijalankan.');
+        }
+        fclose($pipes[0]);
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+        $stdout = '';
+        $stderr = '';
+        $exitCode = -1;
+        $deadline = microtime(true) + $timeoutSeconds;
+
+        try {
+            while (true) {
+                $stdoutChunk = (string) stream_get_contents($pipes[1]);
+                $stderrChunk = (string) stream_get_contents($pipes[2]);
+                $stdout .= $stdoutChunk;
+                $stderr .= $stderrChunk;
+                $this->appendSshLog($stdoutChunk);
+                $this->appendSshLog($stderrChunk);
+                $status = proc_get_status($process);
+                if (!$status['running']) {
+                    $exitCode = (int) $status['exitcode'];
+                    break;
+                }
+                if (microtime(true) >= $deadline) {
+                    proc_terminate($process, 15);
+                    throw new RuntimeException('Waktu tunggu tindakan SSH habis.');
+                }
+                usleep(100000);
+            }
+        } finally {
+            $stdoutChunk = (string) stream_get_contents($pipes[1]);
+            $stderrChunk = (string) stream_get_contents($pipes[2]);
+            $stdout .= $stdoutChunk;
+            $stderr .= $stderrChunk;
+            $this->appendSshLog($stdoutChunk);
+            $this->appendSshLog($stderrChunk);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            proc_close($process);
+        }
+
+        if ($exitCode !== 0) {
+            $detail = trim(substr($stderr ?: $stdout, -1200));
+            throw new RuntimeException(
+                $detail !== ''
+                    ? "Tindakan SSH gagal: {$detail}"
+                    : sprintf('%s berhenti dengan kode %d.', basename($command[0]), $exitCode)
+            );
+        }
+        return ['stdout' => $stdout, 'stderr' => $stderr];
+    }
+
+    private function appendSshLog(string $message): void
+    {
+        if ($this->activeSshTaskId === null || $message === '') {
+            return;
+        }
+        $message = preg_replace('/\x1B\[[0-?]*[ -\/]*[@-~]/', '', $message)
+            ?? $message;
+        $message = preg_replace('/[^\P{C}\n\r\t]/u', '', $message) ?? $message;
+        if ($message !== '') {
+            $this->database->appendSshTaskLog(
+                $this->activeSshTaskId,
+                $message
+            );
+        }
+    }
+
+    private function enqueueDueSchedules(): void
+    {
+        $settings = $this->database->settings();
+        date_default_timezone_set($settings['timezone'] ?: 'Asia/Jakarta');
+        $now = new DateTimeImmutable();
+        $clock = $now->format('H:i');
+        $minuteKey = $now->format('Y-m-d\TH:i');
+
+        foreach ($this->database->schedules() as $schedule) {
+            if (!$schedule['enabled']) {
+                continue;
+            }
+            $stateKey = 'last_' . $schedule['type'];
+            $lastRun = $this->database->schedulerState($stateKey);
+            $mode = $schedule['mode'];
+            $due = match ($mode) {
+                'minutes', 'hours' => $this->intervalIsDue($schedule, $now, $lastRun),
+                'daily' => $schedule['time'] === $clock && $lastRun !== $minuteKey,
+                default => false,
+            };
+            if (!$due) {
+                continue;
+            }
+            $this->database->setSchedulerState($stateKey, $minuteKey);
+            try {
+                $this->database->enqueueJobs($schedule['type']);
+            } catch (\Throwable) {
+                // Tidak ada database aktif; jadwal berikutnya tetap dapat berjalan.
+            }
+        }
+    }
+
+    private function intervalIsDue(
+        array $schedule,
+        DateTimeImmutable $now,
+        ?string $lastRun
+    ): bool {
+        $seconds = $schedule['interval_value']
+            * ($schedule['mode'] === 'minutes' ? 60 : 3600);
+        $anchor = strtotime($schedule['updated_at']);
+        if ($lastRun !== null) {
+            $lastTimestamp = strtotime($lastRun);
+            if ($lastTimestamp !== false) {
+                $anchor = max($anchor === false ? 0 : $anchor, $lastTimestamp);
+            }
+        }
+        return $anchor !== false && ($now->getTimestamp() - $anchor) >= $seconds;
+    }
+
+    private function runJob(array $job): void
+    {
+        $this->appendLog($job['id'], sprintf(
+            "[%s] %s %s dimulai.\n",
+            date('Y-m-d H:i:s'),
+            $job['type'] === 'sync' ? 'Sinkronisasi' : 'Backup',
+            $job['database_name']
+        ));
+
+        try {
+            $result = $job['type'] === 'sync'
+                ? $this->runSync($job)
+                : $this->runBackup($job);
+
+            $this->database->updateJob($job['id'], [
+                'status' => 'success',
+                'output_path' => $result['output_path'],
+                'size_bytes' => $result['size_bytes'] ?? 0,
+                'verification' => $result['verification'],
+                'checksum' => $result['checksum'] ?? null,
+                'error' => null,
+                'finished_at' => Database::now(),
+            ]);
+            $this->appendLog($job['id'], "Pekerjaan selesai dan terverifikasi.\n");
+        } catch (\Throwable $error) {
+            $current = $this->database->job($job['id']);
+            $cancelled = ($current['status'] ?? '') === 'cancel_requested';
+            $this->appendLog($job['id'], "GAGAL: {$error->getMessage()}\n");
+            $this->database->updateJob($job['id'], [
+                'status' => $cancelled ? 'cancelled' : 'failed',
+                'verification' => 'failed',
+                'error' => $cancelled ? 'Dibatalkan oleh pengguna.' : $error->getMessage(),
+                'finished_at' => Database::now(),
+            ]);
+        }
+    }
+
+    private function runSync(array $job): array
+    {
+        $settings = $this->database->settings();
+        $host = trim($settings['remote_host']);
+        if (!preg_match('/^[A-Za-z0-9_.:-]+$/', $host)) {
+            throw new RuntimeException('Host sumber belum diatur atau tidak valid.');
+        }
+        $user = trim($settings['remote_user']);
+        if (!preg_match('/^[A-Za-z0-9_.-]+$/', $user)) {
+            throw new RuntimeException('User SSH tidak valid.');
+        }
+        $port = filter_var(
+            $settings['remote_port'],
+            FILTER_VALIDATE_INT,
+            ['options' => ['min_range' => 1, 'max_range' => 65535]]
+        );
+        if ($port === false) {
+            throw new RuntimeException('Port SSH tidak valid.');
+        }
+
+        $staging = $this->absoluteDirectory($settings['staging_dir'], true);
+        $remoteRoot = $this->absolutePath($settings['remote_root']);
+        $keyPath = $this->absolutePath($settings['ssh_key_path']);
+        if (!preg_match('#^[A-Za-z0-9_./-]+$#', $keyPath)) {
+            throw new RuntimeException('Lokasi private key mengandung karakter yang tidak valid.');
+        }
+
+        $names = [$job['database_name']];
+        if ($job['include_sys']) {
+            $names[] = $job['database_name'] . '_sys';
+        }
+
+        foreach ($names as $name) {
+            Database::validateDatabaseName($name);
+            $destination = $staging . '/' . $name;
+            $source = sprintf(
+                '%s@%s:%s/%s',
+                $user,
+                $host,
+                rtrim($remoteRoot, '/'),
+                $name
+            );
+            $this->appendLog($job['id'], "Menyalin {$source} ke {$staging}\n");
+
+            if ($this->simulate) {
+                if (!is_dir($destination)) {
+                    mkdir($destination, 0770, true);
+                }
+            } else {
+                $ssh = sprintf(
+                    'ssh -p %d -i %s',
+                    $port,
+                    escapeshellarg($keyPath)
+                );
+                $this->runCommand(
+                    [
+                        $settings['rsync_binary'],
+                        '-avzh',
+                        '--partial',
+                        '-e',
+                        $ssh,
+                        $source,
+                        $staging,
+                    ],
+                    $job['id']
+                );
+            }
+
+            if (!is_dir($destination)) {
+                throw new RuntimeException(
+                    "Folder tujuan sinkronisasi tidak ditemukan: {$destination}"
+                );
+            }
+            $this->appendLog(
+                $job['id'],
+                "Terverifikasi di folder tujuan: {$destination}\n"
+            );
+        }
+
+        return [
+            'output_path' => $staging,
+            'verification' => 'destination-present',
+        ];
+    }
+
+    private function runBackup(array $job): array
+    {
+        $settings = $this->database->settings();
+        $staging = $this->absoluteDirectory($settings['staging_dir'], false);
+        $backupRoot = $this->absoluteDirectory($settings['backup_dir'], true);
+        $compression = (int) $settings['compression_level'];
+        if ($compression < 0 || $compression > 9) {
+            throw new RuntimeException('Tingkat kompresi harus bernilai 0–9.');
+        }
+
+        $free = disk_free_space($backupRoot);
+        if ($free === false) {
+            throw new RuntimeException('Kapasitas disk tujuan tidak dapat dibaca.');
+        }
+        if ($free < (int) $settings['minimum_free_bytes']) {
+            throw new RuntimeException('Ruang kosong disk berada di bawah batas minimum.');
+        }
+
+        $sourceNames = [$job['database_name']];
+        if ($job['include_sys']) {
+            $sourceNames[] = $job['database_name'] . '_sys';
+        }
+        $sources = [];
+        foreach ($sourceNames as $sourceName) {
+            Database::validateDatabaseName($sourceName);
+            $source = $staging . '/' . $sourceName;
+            if (!is_dir($source)) {
+                throw new RuntimeException("Folder staging tidak ditemukan: {$source}");
+            }
+            $sources[] = $source;
+        }
+
+        $now = new DateTimeImmutable();
+        $destinationDirectory = sprintf(
+            '%s/%s/%s/%s',
+            $backupRoot,
+            $now->format('Y'),
+            $now->format('m'),
+            $now->format('d')
+        );
+        if (
+            !is_dir($destinationDirectory)
+            && !mkdir($destinationDirectory, 0770, true)
+            && !is_dir($destinationDirectory)
+        ) {
+            throw new RuntimeException('Folder tanggal tujuan tidak dapat dibuat.');
+        }
+
+        $filename = $this->archiveName(
+            $settings['filename_template'],
+            $job['database_name'],
+            $now
+        );
+        $finalPath = $destinationDirectory . '/' . $filename;
+        $partialPath = $finalPath . '.partial';
+        if (is_file($partialPath)) {
+            unlink($partialPath);
+        }
+
+        try {
+            $this->appendLog($job['id'], "Membuat arsip: {$partialPath}\n");
+            if ($this->simulate) {
+                file_put_contents(
+                    $partialPath,
+                    "Simulated archive for {$job['database_name']}\n"
+                );
+            } else {
+                $this->runCommand(
+                    array_merge(
+                        [
+                            $settings['seven_zip_binary'],
+                            'a',
+                            '-t7z',
+                            '-mx=' . $compression,
+                            $partialPath,
+                        ],
+                        $sources
+                    ),
+                    $job['id']
+                );
+            }
+
+            clearstatcache(true, $partialPath);
+            if (!is_file($partialPath) || filesize($partialPath) <= 0) {
+                throw new RuntimeException(
+                    'File backup tidak ditemukan atau kosong di folder tujuan.'
+                );
+            }
+
+            if (!$this->simulate) {
+                $this->appendLog($job['id'], "Menguji arsip dari folder tujuan.\n");
+                $this->runCommand(
+                    [$settings['seven_zip_binary'], 't', $partialPath],
+                    $job['id']
+                );
+            }
+
+            if (!rename($partialPath, $finalPath)) {
+                throw new RuntimeException('File sementara tidak dapat difinalisasi.');
+            }
+            clearstatcache(true, $finalPath);
+            if (!is_file($finalPath) || filesize($finalPath) <= 0) {
+                throw new RuntimeException('File final tidak ditemukan di folder tujuan.');
+            }
+
+            $checksum = hash_file('sha256', $finalPath);
+            if ($checksum === false) {
+                throw new RuntimeException('Checksum file final tidak dapat dibuat.');
+            }
+            $this->appendLog(
+                $job['id'],
+                "Terverifikasi di folder tujuan: {$finalPath}\nSHA-256: {$checksum}\n"
+            );
+
+            return [
+                'output_path' => $finalPath,
+                'size_bytes' => filesize($finalPath),
+                'verification' => 'destination-present-and-readable',
+                'checksum' => $checksum,
+            ];
+        } catch (\Throwable $error) {
+            if (is_file($partialPath)) {
+                @unlink($partialPath);
+            }
+            throw $error;
+        }
+    }
+
+    private function runCommand(array $command, string $jobId): void
+    {
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+        $process = proc_open(
+            $command,
+            $descriptors,
+            $pipes,
+            null,
+            null,
+            ['bypass_shell' => true]
+        );
+        if (!is_resource($process)) {
+            throw new RuntimeException('Proses sistem tidak dapat dijalankan.');
+        }
+
+        fclose($pipes[0]);
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+        $exitCode = -1;
+
+        try {
+            while (true) {
+                foreach ([1, 2] as $pipeIndex) {
+                    $chunk = stream_get_contents($pipes[$pipeIndex]);
+                    if ($chunk !== false && $chunk !== '') {
+                        $this->appendLog($jobId, $chunk);
+                    }
+                }
+
+                $job = $this->database->job($jobId);
+                if (($job['status'] ?? '') === 'cancel_requested') {
+                    proc_terminate($process, 15);
+                    throw new RuntimeException('Pekerjaan dibatalkan.');
+                }
+
+                $status = proc_get_status($process);
+                if (!$status['running']) {
+                    $exitCode = (int) $status['exitcode'];
+                    break;
+                }
+                usleep(100000);
+            }
+        } finally {
+            foreach ([1, 2] as $pipeIndex) {
+                $chunk = stream_get_contents($pipes[$pipeIndex]);
+                if ($chunk !== false && $chunk !== '') {
+                    $this->appendLog($jobId, $chunk);
+                }
+                fclose($pipes[$pipeIndex]);
+            }
+            proc_close($process);
+        }
+
+        if ($exitCode !== 0) {
+            throw new RuntimeException(
+                sprintf('%s berhenti dengan kode %d.', basename($command[0]), $exitCode)
+            );
+        }
+    }
+
+    private function archiveName(
+        string $template,
+        string $databaseName,
+        DateTimeImmutable $date
+    ): string {
+        Database::validateDatabaseName($databaseName);
+        $rendered = strtr($template ?: '{date}_{time}-{name}.7z', [
+            '{name}' => $databaseName,
+            '{date}' => $date->format('Y-m-d'),
+            '{time}' => $date->format('H-i-s'),
+            '{year}' => $date->format('Y'),
+            '{month}' => $date->format('m'),
+            '{day}' => $date->format('d'),
+        ]);
+        if ($rendered !== basename($rendered) || in_array($rendered, ['.', '..'], true)) {
+            throw new RuntimeException('Template nama file menghasilkan path tidak valid.');
+        }
+        return str_ends_with(strtolower($rendered), '.7z')
+            ? $rendered
+            : $rendered . '.7z';
+    }
+
+    private function absolutePath(string $path): string
+    {
+        $path = trim($path);
+        if ($path === '' || !str_starts_with($path, '/') || str_contains($path, "\0")) {
+            throw new RuntimeException("Path Linux tidak valid: {$path}");
+        }
+        return rtrim($path, '/');
+    }
+
+    private function absoluteDirectory(string $path, bool $create): string
+    {
+        $path = $this->absolutePath($path);
+        if ($create && !is_dir($path)) {
+            if (!mkdir($path, 0770, true) && !is_dir($path)) {
+                throw new RuntimeException("Direktori tidak dapat dibuat: {$path}");
+            }
+        }
+        if (!is_dir($path)) {
+            throw new RuntimeException("Direktori tidak ditemukan: {$path}");
+        }
+        return $path;
+    }
+
+    private function appendLog(string $jobId, string $text): void
+    {
+        $text = str_replace("\r\n", "\n", $text);
+        $this->database->appendJobLog(
+            $jobId,
+            substr($text, -self::MAX_LOG_LENGTH)
+        );
+    }
+}

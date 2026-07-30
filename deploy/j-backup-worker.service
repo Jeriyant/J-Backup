@@ -1,0 +1,16 @@
+[Unit]
+Description=J-BACKUP queue and schedule worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=jbackup
+Group=jbackup
+Environment=JBACKUP_DATA_DIR=/var/www/html/J-Backup/storage
+WorkingDirectory=/var/www/html/J-Backup
+ExecStart=/usr/bin/php /var/www/html/J-Backup/bin/worker.php
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+UMask=0007
