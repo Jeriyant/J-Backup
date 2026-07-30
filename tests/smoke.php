@@ -290,7 +290,7 @@ try {
         'Diagnosis dan rekomendasi administrator untuk folder gagal tidak lengkap.'
     );
 
-    $keyPath = $root . '/.ssh/id_ed25519';
+    $keyPath = $root . '/custom-keys/id_ed25519';
     $keyTask = $database->createSshTask('generate_key', [
         'ssh_key_path' => $keyPath,
     ]);
@@ -426,6 +426,15 @@ try {
     assertTrue(
         $database->job($queuedCancellation['id'])['status'] === 'cancelled',
         'Pekerjaan antrean tidak langsung dibatalkan.'
+    );
+    $historyDeleted = $database->clearJobHistory();
+    assertTrue(
+        $historyDeleted >= 1,
+        'Riwayat pekerjaan terminal tidak berhasil dihapus.'
+    );
+    assertTrue(
+        $database->job($cancelRunningJob['id'])['status'] === 'cancel_requested',
+        'Penghapusan riwayat ikut menghapus pekerjaan aktif.'
     );
 
     $database->createUser(

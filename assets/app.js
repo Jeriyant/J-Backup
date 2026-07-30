@@ -194,14 +194,38 @@ const app = document.querySelector("#app");
             </main>`;
     }
 
+    async function measureLatency() {
+        const samples = [];
+        for (let index = 0; index < 3; index += 1) {
+            const target = new URL("assets/app.css", window.location.href);
+            target.searchParams.set("latency", `${Date.now()}-${index}`);
+            const started = performance.now();
+            try {
+                const response = await fetch(target, {
+                    method: "HEAD",
+                    cache: "no-store",
+                    credentials: "same-origin",
+                });
+                if (response.ok) {
+                    samples.push(Math.max(0, performance.now() - started));
+                }
+            } catch {
+                return null;
+            }
+        }
+        if (!samples.length) return null;
+        samples.sort((left, right) => left - right);
+        return Math.round(samples[Math.floor(samples.length / 2)]);
+    }
+
     async function loadDashboard(render = true, background = false) {
-        const started = performance.now();
+        const latencyPromise = measureLatency();
         state.dashboard = await api("dashboard", { background });
         state.pathChecks.realtime =
             state.dashboard.path_checks?.realtime || null;
         state.pathChecks.backup =
             state.dashboard.path_checks?.backup || null;
-        state.latencyMs = Math.max(0, Math.round(performance.now() - started));
+        state.latencyMs = await latencyPromise;
         if (render) {
             renderApp();
             if (state.tab === "settings") await revealStoredSshPassword();
@@ -574,10 +598,17 @@ const app = document.querySelector("#app");
         const cancellableJobs = state.dashboard.jobs.filter(
             (job) => ["queued", "running"].includes(job.status)
         );
+        const historyJobs = state.dashboard.jobs.filter(
+            (job) => !["queued", "running", "cancel_requested"].includes(job.status)
+        );
         return `<article class="panel full"><div class="panel-heading"><div><p class="eyebrow">AUDIT PEKERJAAN</p>
             <h2>Riwayat sinkronisasi & backup</h2></div>
             <div class="toolbar">
                 <span class="tag">${state.dashboard.jobs.length} pekerjaan</span>
+                ${historyJobs.length ? `
+                    <button class="button danger" data-action="clear-job-history">
+                        <span>×</span>Hapus riwayat
+                    </button>` : ""}
                 ${cancellableJobs.length ? `
                     <button class="button danger" data-action="cancel-all-jobs">
                         <span>■</span>Batalkan semua (${cancellableJobs.length})
@@ -1104,6 +1135,18 @@ const app = document.querySelector("#app");
         `);
     }
 
+    function clearJobHistoryDialog() {
+        showModal(`
+            <p class="eyebrow">HAPUS RIWAYAT</p>
+            <h2>Hapus seluruh riwayat pekerjaan?</h2>
+            <p class="muted">Pekerjaan yang sudah selesai, gagal, atau dibatalkan akan
+                dihapus permanen. Antrean dan pekerjaan yang masih berjalan tetap dipertahankan.</p>
+            <button class="button danger wide" data-action="confirm-clear-job-history">
+                <span>×</span>Ya, hapus riwayat
+            </button>
+        `);
+    }
+
     async function startJobs(type) {
         const result = await api("jobs_create", {
             method: "POST",
@@ -1457,6 +1500,16 @@ const app = document.querySelector("#app");
                 toast(result.total
                     ? `${result.total} pekerjaan dibatalkan atau sedang dihentikan.`
                     : "Tidak ada pekerjaan aktif atau antrean.");
+                await loadDashboard();
+            } else if (target.dataset.action === "clear-job-history") {
+                clearJobHistoryDialog();
+            } else if (target.dataset.action === "confirm-clear-job-history") {
+                const result = await api("jobs_history_clear", {
+                    method: "POST",
+                    body: {},
+                });
+                closeModal();
+                toast(`${result.deleted} riwayat pekerjaan dihapus.`);
                 await loadDashboard();
             } else if (target.dataset.scheduleDay) {
                 const schedule = state.dashboard.schedules.find((item) => item.type === target.dataset.scheduleDay);

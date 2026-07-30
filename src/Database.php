@@ -1244,6 +1244,16 @@ final class Database
         }
     }
 
+    public function clearJobHistory(): int
+    {
+        $statement = $this->pdo->prepare(
+            "DELETE FROM jobs
+             WHERE status NOT IN ('queued', 'running', 'cancel_requested')"
+        );
+        $statement->execute();
+        return $statement->rowCount();
+    }
+
     public function schedulerState(string $key): ?string
     {
         $statement = $this->pdo->prepare(

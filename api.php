@@ -1009,6 +1009,14 @@ try {
         ]);
     }
 
+    if ($action === 'jobs_history_clear') {
+        requireMethod('POST');
+        respond([
+            'ok' => true,
+            'deleted' => $database->clearJobHistory(),
+        ]);
+    }
+
     if ($action === 'update_check') {
         requireMethod('GET');
         require_once __DIR__ . '/src/UpdateChecker.php';

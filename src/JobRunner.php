@@ -780,13 +780,6 @@ SH;
             }
         }
 
-        $allowedDirectory = rtrim($this->runtimeDirectory, '/') . '/.ssh';
-        if (dirname($keyPath) !== $allowedDirectory) {
-            throw new RuntimeException(
-                "Pembuatan dan pengujian kunci hanya diizinkan dalam {$allowedDirectory}."
-            );
-        }
-
         return [
             'host' => $host,
             'user' => $user,
