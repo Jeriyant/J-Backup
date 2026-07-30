@@ -657,27 +657,6 @@ try {
         'Reset database menerima konfirmasi yang tidak tepat.'
     );
 
-    $resetCleanup = $request('reset_database', 'POST', [
-        'confirmation' => 'RESET',
-    ]);
-    assertHttp(
-        $resetCleanup['status'] === 202
-            && $resetCleanup['body']['ssh_cleanup_required'] === true
-            && $resetCleanup['body']['task']['type'] === 'disconnect',
-        'Reset tidak menjadwalkan pencabutan public key SSH.'
-    );
-    $secretDatabase->exec(
-        "DELETE FROM scheduler_state WHERE key = 'ssh_connection'"
-    );
-    foreach (new FilesystemIterator(
-        dirname($managedKey),
-        FilesystemIterator::SKIP_DOTS
-    ) as $sshFile) {
-        $sshFile->isDir()
-            ? rmdir($sshFile->getPathname())
-            : unlink($sshFile->getPathname());
-    }
-
     $reset = $request('reset_database', 'POST', [
         'confirmation' => 'RESET',
     ]);

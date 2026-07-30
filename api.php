@@ -162,7 +162,10 @@ function sshConnectionInfo(
             (string) ($state['user'] ?? ''),
             (string) ($settings['remote_user'] ?? '')
         )
-        && is_file($keyPath);
+        && hash_equals(
+            (string) ($state['key_path'] ?? $keyPath),
+            $keyPath
+        );
 
     return [
         'connected' => $connected,

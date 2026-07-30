@@ -635,39 +635,42 @@ final class JobRunner
         $config = $this->sshConfig($payload);
         $keyPath = $config['key_path'];
         $publicPath = $keyPath . '.pub';
-        if (!is_file($keyPath)) {
-            throw new RuntimeException(
-                'Private key lokal tidak ditemukan. Public key remote tidak dapat dicabut dengan aman.'
-            );
-        }
-
-        if (is_file($publicPath)) {
-            $publicKey = trim((string) file_get_contents($publicPath));
-        } elseif ($this->simulate) {
-            throw new RuntimeException('Public key simulasi tidak ditemukan.');
-        } else {
-            $derived = $this->runUtility(
-                ['/usr/bin/ssh-keygen', '-y', '-f', $keyPath],
-                15
-            );
-            $publicKey = trim($derived['stdout']);
-        }
-        $parts = preg_split('/\s+/', $publicKey, 3) ?: [];
-        if (
-            count($parts) < 2
-            || !preg_match('/^ssh-(?:ed25519|rsa)$/', $parts[0])
-            || !preg_match('/^[A-Za-z0-9+\/=]+$/', $parts[1])
-        ) {
-            throw new RuntimeException('Public key lokal tidak valid.');
-        }
-
         $target = $config['user'] . '@' . $config['host'];
-        $this->appendSshLog(
-            "Mencabut public key J-BACKUP dari {$target}:{$config['port']}...\n"
-        );
-        if (!$this->simulate) {
-            $knownHosts = dirname($keyPath) . '/known_hosts';
-            $remoteScript = <<<'SH'
+        $remoteKeyRemoved = false;
+        $warning = null;
+        try {
+            if (!is_file($keyPath)) {
+                throw new RuntimeException(
+                    'Private key lokal tidak ditemukan sehingga public key remote tidak dapat dicabut otomatis.'
+                );
+            }
+
+            if (is_file($publicPath)) {
+                $publicKey = trim((string) file_get_contents($publicPath));
+            } elseif ($this->simulate) {
+                throw new RuntimeException('Public key simulasi tidak ditemukan.');
+            } else {
+                $derived = $this->runUtility(
+                    ['/usr/bin/ssh-keygen', '-y', '-f', $keyPath],
+                    15
+                );
+                $publicKey = trim($derived['stdout']);
+            }
+            $parts = preg_split('/\s+/', $publicKey, 3) ?: [];
+            if (
+                count($parts) < 2
+                || !preg_match('/^ssh-(?:ed25519|rsa)$/', $parts[0])
+                || !preg_match('/^[A-Za-z0-9+\/=]+$/', $parts[1])
+            ) {
+                throw new RuntimeException('Public key lokal tidak valid.');
+            }
+
+            $this->appendSshLog(
+                "Mencabut public key J-BACKUP dari {$target}:{$config['port']}...\n"
+            );
+            if (!$this->simulate) {
+                $knownHosts = dirname($keyPath) . '/known_hosts';
+                $remoteScript = <<<'SH'
 set -eu
 auth_file="${HOME}/.ssh/authorized_keys"
 [ -f "${auth_file}" ] || exit 0
@@ -678,31 +681,40 @@ awk -v key_type="$1" -v key_data="$2" \
 chmod 600 "${temp_file}" 2>/dev/null || true
 mv "${temp_file}" "${auth_file}"
 SH;
-            $this->runUtility([
-                '/usr/bin/ssh',
-                '-o',
-                'BatchMode=yes',
-                '-o',
-                'ConnectTimeout=10',
-                '-o',
-                'ConnectionAttempts=1',
-                '-o',
-                'IdentitiesOnly=yes',
-                '-o',
-                'StrictHostKeyChecking=accept-new',
-                '-o',
-                'UserKnownHostsFile=' . $knownHosts,
-                '-o',
-                'LogLevel=ERROR',
-                '-i',
-                $keyPath,
-                '-p',
-                (string) $config['port'],
-                $target,
-                'sh -s -- ' . $parts[0] . ' ' . $parts[1],
-            ], 20, [], $remoteScript);
+                $this->runUtility([
+                    '/usr/bin/ssh',
+                    '-o',
+                    'BatchMode=yes',
+                    '-o',
+                    'ConnectTimeout=10',
+                    '-o',
+                    'ConnectionAttempts=1',
+                    '-o',
+                    'IdentitiesOnly=yes',
+                    '-o',
+                    'StrictHostKeyChecking=accept-new',
+                    '-o',
+                    'UserKnownHostsFile=' . $knownHosts,
+                    '-o',
+                    'LogLevel=ERROR',
+                    '-i',
+                    $keyPath,
+                    '-p',
+                    (string) $config['port'],
+                    $target,
+                    'sh -s -- ' . $parts[0] . ' ' . $parts[1],
+                ], 20, [], $remoteScript);
+            }
+            $remoteKeyRemoved = true;
+            $this->appendSshLog("Public key remote berhasil dicabut.\n");
+        } catch (\Throwable $error) {
+            $warning = $error->getMessage();
+            $this->appendSshLog(
+                "PERINGATAN: {$warning}\n"
+                . "Status koneksi dan file key lokal tetap akan dibersihkan agar Connect ulang dapat dilakukan.\n"
+            );
         }
-        $this->appendSshLog("Public key remote berhasil dicabut.\n");
+
         $this->database->deleteSchedulerState('ssh_connection');
 
         $notRemoved = [];
@@ -713,19 +725,25 @@ SH;
         }
         $this->secretStore?->delete('ssh_password');
         if ($notRemoved !== []) {
-            throw new RuntimeException(
-                'Public key remote sudah dicabut, tetapi file lokal gagal dihapus: '
-                . implode(', ', $notRemoved)
-            );
+            $cleanupWarning = 'File lokal gagal dihapus: '
+                . implode(', ', $notRemoved);
+            $warning = $warning === null
+                ? $cleanupWarning
+                : $warning . ' ' . $cleanupWarning;
+            $this->appendSshLog("PERINGATAN: {$cleanupWarning}\n");
         }
         $this->appendSshLog(
-            "Private key, public key, known_hosts, dan password tersimpan telah dihapus.\n"
+            "Status koneksi dan password tersimpan telah dibersihkan.\n"
         );
 
         return [
             'disconnected' => true,
+            'remote_key_removed' => $remoteKeyRemoved,
+            'warning' => $warning,
             'target' => $target,
-            'message' => 'Koneksi SSH diputus dan key berhasil dihapus.',
+            'message' => $remoteKeyRemoved
+                ? 'Koneksi SSH diputus dan key berhasil dihapus.'
+                : 'Status koneksi lokal dibersihkan. Connect ulang sudah tersedia.',
         ];
     }
 
@@ -751,6 +769,7 @@ SH;
                 'host' => $config['host'],
                 'port' => $config['port'],
                 'user' => $config['user'],
+                'key_path' => $config['key_path'],
                 'target' => $result['target']
                     ?? ($config['user'] . '@' . $config['host']),
                 'connected_at' => Database::now(),

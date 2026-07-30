@@ -872,7 +872,7 @@ const app = document.querySelector("#app");
                     </select></label>
                     <label>Komentar key<input name="ssh_key_comment" maxlength="128" value="${escapeHtml(s.ssh_key_comment)}" placeholder="Jeriyant-Key-RSA"></label>
                     <label class="span-2">Private key<input name="ssh_key_path" value="${escapeHtml(s.ssh_key_path)}">
-                        <small>Dikelola pada folder data aplikasi agar dapat dibaca worker dengan aman; bukan di /root.</small></label>
+                        <small>Default aman: /root/.ssh/j-backup/id_ed25519. Path absolut Linux lain juga diperbolehkan.</small></label>
                     <div class="ssh-tools span-2">
                         <button class="button ${sshConnected ? "danger ssh-disconnect" : "ssh-setup"}" type="button"
                             data-action="${sshConnected ? "ssh-disconnect" : "ssh-connect"}">
@@ -1350,12 +1350,17 @@ const app = document.querySelector("#app");
                     ${terminal()}
                 `, true);
             } else {
+                const remoteKeyRemoved = task.result.remote_key_removed !== false;
                 showModal(`
                     <p class="eyebrow">KONEKSI SSH DIPUTUS</p>
-                    <h2>Disconnect berhasil</h2>
-                    <p class="muted">Public key J-BACKUP telah dicabut dari server sumber.</p>
+                    <h2>${remoteKeyRemoved ? "Disconnect berhasil" : "Status lokal dibersihkan"}</h2>
+                    <p class="muted">${remoteKeyRemoved
+                        ? "Public key J-BACKUP telah dicabut dari server sumber."
+                        : "Key lokal hilang atau bermasalah. Status lokal sudah dibersihkan agar Connect ulang tersedia; public key lama mungkin masih tersimpan di server sumber."}</p>
                     <div class="connection-success"><i>✓</i><span><strong>${escapeHtml(task.result.target)}</strong>
-                        <small>Key lokal, known_hosts, dan password tersimpan sudah dihapus</small></span></div>
+                        <small>${remoteKeyRemoved
+                            ? "Key lokal, known_hosts, dan password tersimpan sudah dihapus"
+                            : "Silakan jalankan Connect untuk membuat dan memasang key pengganti"}</small></span></div>
                     ${terminal()}
                 `, true);
             }

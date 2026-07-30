@@ -109,7 +109,9 @@ try {
     assertTrue(
         $database->settings()['remote_user'] === 'root'
             && $database->settings()['staging_dir'] === $root . '/Realtime-Data'
-            && $database->settings()['backup_dir'] === $root . '/Hasil-Backup',
+            && $database->settings()['backup_dir'] === $root . '/Hasil-Backup'
+            && $database->settings()['ssh_key_path']
+                === '/root/.ssh/j-backup/id_ed25519',
         'Default user atau folder aplikasi pertama tidak benar.'
     );
     $database->updateSettings([
@@ -121,8 +123,8 @@ try {
         $database->settings()['staging_dir']
             === $root . '/staging'
         && $database->settings()['ssh_key_path']
-            === $root . '/.ssh/id_ed25519',
-        'Path runtime versi lama tidak dimigrasikan ke folder aplikasi.'
+            === '/var/lib/j-backup/.ssh/id_ed25519',
+        'Path realtime lama tidak dimigrasikan atau path key kustom berubah.'
     );
     assertTrue(
         $database->schedulerState('runtime_data_directory') === $root,
@@ -139,8 +141,9 @@ try {
     $database = new Database($root . '/j-backup.sqlite');
     assertTrue(
         $database->settings()['staging_dir'] === $root . '/staging'
-        && $database->settings()['ssh_key_path'] === $root . '/.ssh/id_ed25519',
-        'Path runtime tidak ikut berubah setelah folder aplikasi dipindahkan.'
+        && $database->settings()['ssh_key_path']
+            === '/srv/j-backup-lama/storage/.ssh/id_ed25519',
+        'Path realtime tidak ikut berubah atau path key kustom ikut dipindahkan.'
     );
     $secretStore = new SecretStore($database, $root);
     $secretStore->set('ssh_password', 'rahasia-sementara');
@@ -331,7 +334,8 @@ try {
     );
     assertTrue(
         $connectionState['connected'] === true
-            && $connectionState['target'] === 'backup@127.0.0.1',
+            && $connectionState['target'] === 'backup@127.0.0.1'
+            && $connectionState['key_path'] === $keyPath,
         'Status koneksi SSH sukses tidak tersimpan.'
     );
 
@@ -395,6 +399,44 @@ try {
     assertTrue(
         $secretStore->get('ssh_password') === null,
         'Password SSH tersimpan tidak dihapus setelah disconnect.'
+    );
+
+    $recoveryKeyPath = $root . '/custom-keys/recovery_ed25519';
+    $secretStore->set('ssh_password', 'rahasia-pemulihan');
+    $recoveryConnectTask = $database->createSshTask('generate_key', [
+        'remote_host' => '127.0.0.1',
+        'remote_port' => 22,
+        'remote_user' => 'backup',
+        'ssh_key_path' => $recoveryKeyPath,
+        'ssh_key_type' => 'ed25519',
+        'ssh_key_comment' => 'J-BACKUP-Recovery',
+        'install_key' => true,
+    ]);
+    $runner->run();
+    $recoveryConnectTask = $database->sshTask($recoveryConnectTask['id']);
+    assertTrue(
+        $recoveryConnectTask['status'] === 'success',
+        $recoveryConnectTask['error'] ?: 'Persiapan pemulihan key gagal.'
+    );
+    @unlink($recoveryKeyPath);
+    @unlink($recoveryKeyPath . '.pub');
+    $recoveryDisconnectTask = $database->createSshTask('disconnect', [
+        'remote_host' => '127.0.0.1',
+        'remote_port' => 22,
+        'remote_user' => 'backup',
+        'ssh_key_path' => $recoveryKeyPath,
+    ]);
+    $runner->run();
+    $recoveryDisconnectTask = $database->sshTask(
+        $recoveryDisconnectTask['id']
+    );
+    assertTrue(
+        $recoveryDisconnectTask['status'] === 'success'
+            && $recoveryDisconnectTask['result']['disconnected'] === true
+            && $recoveryDisconnectTask['result']['remote_key_removed'] === false
+            && $database->schedulerState('ssh_connection') === null,
+        $recoveryDisconnectTask['error']
+            ?: 'Key hilang masih mengunci status koneksi SSH.'
     );
 
     $cancelQueuedJobs = [

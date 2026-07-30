@@ -57,7 +57,8 @@ final class Database
                 : $applicationDirectory . '/Realtime-Data';
         $this->defaultSettings['backup_dir'] =
             $applicationDirectory . '/Hasil-Backup';
-        $this->defaultSettings['ssh_key_path'] = $directory . '/.ssh/id_ed25519';
+        $this->defaultSettings['ssh_key_path'] =
+            '/root/.ssh/j-backup/id_ed25519';
         if (is_string($backupDirectory) && trim($backupDirectory) !== '') {
             $this->defaultSettings['backup_dir'] = rtrim($backupDirectory, '/\\');
         }
@@ -445,7 +446,7 @@ final class Database
         $migrateRuntimePath = $this->pdo->prepare(
             "UPDATE settings
              SET value = ? || substr(value, ?)
-             WHERE key IN ('staging_dir', 'ssh_key_path')
+             WHERE key = 'staging_dir'
                AND value LIKE ?"
         );
         foreach (array_unique($legacyPrefixes) as $legacyPrefix) {
