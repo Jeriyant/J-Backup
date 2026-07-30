@@ -253,10 +253,14 @@ Reset akan menghapus:
 - seluruh isi `storage/.ssh`, termasuk private key, public key, `known_hosts`,
   dan file sementara `ssh-copy-id`.
 
-File arsip pada folder tujuan backup tidak dihapus. Public key yang sudah
-terpasang pada server sumber juga tidak dicabut oleh Reset Database. Gunakan
-**Disconnect** terlebih dahulu jika public key remote juga harus dihapus.
-Reset ditolak selama worker sedang menjalankan pekerjaan.
+Jika koneksi SSH sedang aktif, Reset Database lebih dahulu meminta worker
+mencabut public key J-BACKUP dari `~/.ssh/authorized_keys` server sumber.
+Database baru direset setelah pencabutan remote dan pembersihan key lokal
+berhasil. Jika server tidak dapat dihubungi, reset dibatalkan dan key lokal
+dipertahankan supaya pencabutan dapat dicoba kembali.
+
+File arsip pada folder tujuan backup tidak dihapus. Reset ditolak selama worker
+sedang menjalankan pekerjaan.
 
 ### Catatan staging pada WSL
 
