@@ -711,6 +711,71 @@ try {
         respond(['source' => $database->createSource(input())], 201);
     }
 
+    if ($action === 'source_import') {
+        requireMethod('POST');
+        $upload = $_FILES['file'] ?? null;
+        if (
+            !is_array($upload)
+            || ($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK
+        ) {
+            $code = (int) ($upload['error'] ?? UPLOAD_ERR_NO_FILE);
+            throw new RuntimeException(
+                in_array(
+                    $code,
+                    [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE],
+                    true
+                )
+                    ? 'File impor melebihi batas upload server.'
+                    : 'File Excel belum dipilih atau tidak dapat diterima.'
+            );
+        }
+        if ((int) ($upload['size'] ?? 0) > 10 * 1024 * 1024) {
+            throw new RuntimeException('Ukuran file impor maksimal 10 MB.');
+        }
+        $name = basename((string) ($upload['name'] ?? ''));
+        if (!preg_match('/\.(xlsx|csv)$/i', $name)) {
+            throw new RuntimeException('Format file harus .xlsx atau .csv.');
+        }
+
+        require_once __DIR__ . '/src/SourceImport.php';
+        $rows = \JBackup\SourceImport::normalize(
+            \JBackup\SourceImport::read(
+                (string) $upload['tmp_name'],
+                $name
+            )
+        );
+        $imported = [];
+        $errors = [];
+        foreach ($rows as $row) {
+            $line = (int) $row['_row'];
+            unset($row['_row']);
+            try {
+                $imported[] = $database->createSource($row);
+            } catch (PDOException $error) {
+                $errors[] = [
+                    'row' => $line,
+                    'name' => (string) ($row['name'] ?? ''),
+                    'message' => $error->getCode() === '23000'
+                        ? 'Nama sumber sudah terdaftar.'
+                        : 'Database menolak baris ini.',
+                ];
+            } catch (Throwable $error) {
+                $errors[] = [
+                    'row' => $line,
+                    'name' => (string) ($row['name'] ?? ''),
+                    'message' => $error->getMessage(),
+                ];
+            }
+        }
+        respond([
+            'ok' => $imported !== [],
+            'imported_count' => count($imported),
+            'failed_count' => count($errors),
+            'sources' => $imported,
+            'errors' => $errors,
+        ], $imported !== [] ? 201 : 422);
+    }
+
     if ($action === 'source_update' || $action === 'database_update') {
         requireMethod('POST');
         $payload = input();

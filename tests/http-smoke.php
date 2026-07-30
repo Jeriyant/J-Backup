@@ -481,6 +481,98 @@ try {
         'Mode hari tertentu masih diterima.'
     );
 
+    $importBoundary = '----JBackupImport' . bin2hex(random_bytes(6));
+    $importCsv = "nama_sumber,mode_arsip,subfolder_hasil,path_sumber,aktif\r\n"
+        . "Import Dokumen,gabung,dokumen,\"/srv/dokumen|web=/var/www/html\",ya\r\n"
+        . "Import Arsip,terpisah,,/srv/arsip,tidak\r\n";
+    $importMultipart = "--{$importBoundary}\r\n"
+        . "Content-Disposition: form-data; name=\"file\"; filename=\"sumber.csv\"\r\n"
+        . "Content-Type: text/csv\r\n\r\n"
+        . $importCsv . "\r\n"
+        . "--{$importBoundary}--\r\n";
+    $sourceImport = $rawRequest(
+        'source_import',
+        'POST',
+        $importMultipart,
+        "multipart/form-data; boundary={$importBoundary}"
+    );
+    $sourceImportBody = is_string($sourceImport['body'])
+        ? json_decode($sourceImport['body'], true)
+        : null;
+    assertHttp(
+        $sourceImport['status'] === 201
+            && $sourceImportBody['imported_count'] === 2
+            && $sourceImportBody['failed_count'] === 0,
+        'Import sumber dari tabel CSV gagal.'
+    );
+    $importedDashboard = $request('dashboard');
+    $importedSources = array_column(
+        $importedDashboard['body']['sources'],
+        null,
+        'name'
+    );
+    assertHttp(
+        count($importedSources['Import Dokumen']['paths']) === 2
+            && $importedSources['Import Dokumen']['paths'][1]['alias'] === 'web'
+            && $importedSources['Import Arsip']['archive_mode'] === 'separate'
+            && $importedSources['Import Arsip']['enabled'] === false,
+        'Hasil import tidak mengikuti mode, path, alias, atau status aktif.'
+    );
+
+    $xlsxFile = $root . '/sumber.xlsx';
+    $xlsx = new ZipArchive();
+    assertHttp(
+        $xlsx->open($xlsxFile, ZipArchive::CREATE | ZipArchive::OVERWRITE)
+            === true,
+        'Workbook XLSX untuk pengujian tidak dapat dibuat.'
+    );
+    $xlsx->addFromString(
+        'xl/worksheets/sheet1.xml',
+        <<<'XML'
+        <?xml version="1.0" encoding="UTF-8"?>
+        <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+          <sheetData>
+            <row r="1">
+              <c r="A1" t="inlineStr"><is><t>nama_sumber</t></is></c>
+              <c r="B1" t="inlineStr"><is><t>mode_arsip</t></is></c>
+              <c r="C1" t="inlineStr"><is><t>subfolder_hasil</t></is></c>
+              <c r="D1" t="inlineStr"><is><t>path_sumber</t></is></c>
+              <c r="E1" t="inlineStr"><is><t>aktif</t></is></c>
+            </row>
+            <row r="2">
+              <c r="A2" t="inlineStr"><is><t>Import Excel</t></is></c>
+              <c r="B2" t="inlineStr"><is><t>gabung</t></is></c>
+              <c r="C2" t="inlineStr"><is><t>excel</t></is></c>
+              <c r="D2" t="inlineStr"><is><t>/srv/excel&#10;config=/etc/excel</t></is></c>
+              <c r="E2" t="inlineStr"><is><t>ya</t></is></c>
+            </row>
+          </sheetData>
+        </worksheet>
+        XML
+    );
+    $xlsx->close();
+    $xlsxBoundary = '----JBackupXlsx' . bin2hex(random_bytes(6));
+    $xlsxMultipart = "--{$xlsxBoundary}\r\n"
+        . "Content-Disposition: form-data; name=\"file\"; filename=\"sumber.xlsx\"\r\n"
+        . "Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n"
+        . file_get_contents($xlsxFile) . "\r\n"
+        . "--{$xlsxBoundary}--\r\n";
+    $xlsxImport = $rawRequest(
+        'source_import',
+        'POST',
+        $xlsxMultipart,
+        "multipart/form-data; boundary={$xlsxBoundary}"
+    );
+    $xlsxImportBody = is_string($xlsxImport['body'])
+        ? json_decode($xlsxImport['body'], true)
+        : null;
+    assertHttp(
+        $xlsxImport['status'] === 201
+            && $xlsxImportBody['imported_count'] === 1
+            && count($xlsxImportBody['sources'][0]['paths']) === 2,
+        'Import sumber dari workbook Excel XLSX gagal.'
+    );
+
     $managedKey = $root . '/data/.ssh/id_ed25519';
     if (!is_dir(dirname($managedKey))) {
         mkdir(dirname($managedKey), 0770, true);

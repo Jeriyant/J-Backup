@@ -233,6 +233,46 @@ const app = document.querySelector("#app");
         await loadDashboard(false);
     }
 
+    async function importSourcesFile(file) {
+        if (!file) throw new Error("Pilih file Excel atau CSV terlebih dahulu.");
+        const form = new FormData();
+        form.append("file", file);
+        const response = await fetch("api.php?action=source_import", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "X-CSRF-Token": state.csrf },
+            body: form,
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok && !Array.isArray(payload.errors)) {
+            throw new Error(
+                payload.error || `Impor gagal (${response.status}).`
+            );
+        }
+        await loadDashboard();
+        showModal(`
+            <p class="eyebrow">HASIL IMPORT</p>
+            <h2>${payload.imported_count || 0} sumber berhasil ditambahkan</h2>
+            <p class="muted">${payload.failed_count || 0} baris tidak dapat diimpor.</p>
+            <div class="import-summary">
+                <div><strong>${payload.imported_count || 0}</strong><span>Berhasil</span></div>
+                <div class="${payload.failed_count ? "has-errors" : ""}">
+                    <strong>${payload.failed_count || 0}</strong><span>Gagal</span>
+                </div>
+            </div>
+            ${payload.errors?.length ? `
+                <div class="import-errors">
+                    ${payload.errors.map((error) => `
+                        <div><strong>Baris ${error.row}${error.name ? ` · ${escapeHtml(error.name)}` : ""}</strong>
+                            <span>${escapeHtml(error.message)}</span></div>
+                    `).join("")}
+                </div>` : ""}
+            <button class="button primary wide" data-action="close-modal">
+                <span>✓</span>Selesai
+            </button>
+        `, true);
+    }
+
     function renderApp() {
         const dashboard = state.dashboard;
         if (!dashboard) return;
@@ -443,6 +483,9 @@ const app = document.querySelector("#app");
                     <div><p class="eyebrow">SUMBER BACKUP</p><h2>Daftar sumber</h2>
                         <p class="muted">Setiap sumber dapat berisi satu atau banyak path folder remote.</p></div>
                     <div class="toolbar">
+                        <button class="button ghost" data-action="import-sources">
+                            <span>⇧</span>Import Excel
+                        </button>
                         <button class="button primary" data-action="add"><span>＋</span>Tambah sumber</button></div>
                 </div>
                 <div class="tools">
@@ -801,6 +844,51 @@ const app = document.querySelector("#app");
             </form>`);
     }
 
+    function sourceImportDialog() {
+        showModal(`
+            <p class="eyebrow">IMPORT SUMBER</p>
+            <h2>Import dari Excel</h2>
+            <p class="muted">Gunakan file <code>.xlsx</code> atau <code>.csv</code>. Baris pertama harus berisi nama kolom berikut.</p>
+            <div class="import-guide">
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr>
+                            <th>nama_sumber *</th>
+                            <th>mode_arsip</th>
+                            <th>subfolder_hasil</th>
+                            <th>path_sumber *</th>
+                            <th>aktif</th>
+                        </tr></thead>
+                        <tbody><tr>
+                            <td>JERIYANT</td>
+                            <td>gabung</td>
+                            <td>jeriyant</td>
+                            <td><code>/var/lib/mysql/JERIYANT<br>/var/lib/mysql/JERIYANT_sys</code></td>
+                            <td>ya</td>
+                        </tr></tbody>
+                    </table>
+                </div>
+                <ul>
+                    <li><strong>nama_sumber</strong> dan <strong>path_sumber</strong> wajib diisi.</li>
+                    <li><strong>mode_arsip:</strong> isi <code>gabung</code> atau <code>terpisah</code>.</li>
+                    <li>Untuk beberapa path, buat baris baru di dalam sel Excel dengan <code>Alt+Enter</code>. Tanda <code>|</code> juga didukung.</li>
+                    <li>Alias path dapat ditulis sebagai <code>alias=/path/folder</code>.</li>
+                    <li><strong>aktif:</strong> isi <code>ya</code> atau <code>tidak</code>. Jika kosong, sumber akan aktif.</li>
+                </ul>
+            </div>
+            <form class="form" data-form="source-import">
+                <label>File Excel atau CSV
+                    <input name="file" type="file" accept=".xlsx,.csv"
+                        aria-label="File Excel atau CSV" required>
+                    <small>Maksimal 10 MB dan 1.000 sumber dalam satu file.</small>
+                </label>
+                <button class="button primary wide" type="submit">
+                    <span>⇧</span>Import sumber
+                </button>
+            </form>
+        `, true);
+    }
+
     function manualDialog() {
         showModal(`<p class="eyebrow">EKSEKUSI MANUAL</p><h2>Jalankan pekerjaan sekarang</h2>
             <p class="muted">${state.selected.size ? `${state.selected.size} sumber terpilih akan diproses.` : "Semua sumber aktif akan diproses berurutan."}</p>
@@ -1066,6 +1154,8 @@ const app = document.querySelector("#app");
                 if (state.poller) clearInterval(state.poller);
                 state.poller = null;
                 await boot();
+            } else if (target.dataset.action === "import-sources") {
+                sourceImportDialog();
             } else if (target.dataset.action === "add") sourceDialog();
             else if (target.dataset.action === "manual") manualDialog();
             else if (target.dataset.action === "close-modal") closeModal();
@@ -1227,6 +1317,9 @@ const app = document.querySelector("#app");
                 closeModal();
                 toast(`Akun ${result.user.username} berhasil diperbarui.`);
                 await loadDashboard();
+            } else if (kind === "source-import") {
+                const file = form.querySelector('[name="file"]')?.files?.[0];
+                await importSourcesFile(file);
             } else if (kind === "source-add" || kind === "source-edit") {
                 data.paths = String(data.paths || "")
                     .split(/\r?\n/)

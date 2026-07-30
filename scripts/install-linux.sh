@@ -35,7 +35,7 @@ done
 if command -v apt-get >/dev/null 2>&1; then
   apt-get update
   apt-get install -y \
-    apache2 php libapache2-mod-php php-cli php-sqlite3 \
+    apache2 php libapache2-mod-php php-cli php-sqlite3 php-zip php-xml \
     rsync p7zip-full openssh-client sshpass ca-certificates
   web_user="www-data"
   apache_service="apache2"
@@ -43,7 +43,7 @@ if command -v apt-get >/dev/null 2>&1; then
   ca_command="update-ca-certificates"
 elif command -v dnf >/dev/null 2>&1; then
   dnf install -y \
-    httpd php php-cli php-pdo php-sqlite3 \
+    httpd php php-cli php-pdo php-sqlite3 php-zip php-xml \
     rsync p7zip p7zip-plugins openssh-clients sshpass ca-certificates
   web_user="apache"
   apache_service="httpd"
@@ -95,6 +95,8 @@ verify_command "PHP CLI" "php"
 verify_php_extension "PDO" "pdo"
 verify_php_extension "PDO SQLite" "pdo_sqlite"
 verify_php_extension "Sodium" "sodium"
+verify_php_extension "PHP Zip" "zip"
+verify_php_extension "PHP XML" "SimpleXML"
 verify_command "rsync" "rsync"
 verify_command "7-Zip" "7z"
 verify_command "SSH client" "ssh"

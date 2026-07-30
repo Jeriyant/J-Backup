@@ -68,8 +68,8 @@ http://ALAMAT-SERVER/j-backup/
 
 Installer akan:
 
-- memasang Apache, PHP 8.2+, SQLite, Sodium, rsync, 7-Zip, OpenSSH, dan
-  `sshpass`;
+- memasang Apache, PHP 8.2+, SQLite, Sodium, PHP Zip/XML untuk import Excel,
+  rsync, 7-Zip, OpenSSH, dan `sshpass`;
 - menampilkan verifikasi setiap paket dengan status `OK` atau `GAGAL`;
 - membuat user sistem `jbackup`;
 - menyiapkan database, folder `Realtime-Data`, `Hasil-Backup`, SSH, dan key
@@ -176,6 +176,9 @@ Saat pertama dibuka:
    panel tersebut. Atur tujuan backup pada panel **Lokasi & penamaan** dan
    simpan panel backup secara terpisah.
 8. Tambahkan satu atau beberapa **Sumber Backup** dari menu **Sumber**.
+   Daftar sumber juga dapat diimpor dari file Excel `.xlsx` atau `.csv`
+   menggunakan tombol **Import Excel** dan format tabel yang ditampilkan
+   aplikasi.
 9. Atur jadwal sinkronisasi dan backup.
 
 ### Sumber backup universal

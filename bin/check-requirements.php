@@ -7,7 +7,7 @@ $errors = [];
 if (PHP_VERSION_ID < 80200) {
     $errors[] = 'PHP 8.2 atau lebih baru diperlukan.';
 }
-foreach (['pdo', 'pdo_sqlite', 'sodium'] as $extension) {
+foreach (['pdo', 'pdo_sqlite', 'sodium', 'zip', 'SimpleXML'] as $extension) {
     if (!extension_loaded($extension)) {
         $errors[] = "Extension {$extension} belum aktif.";
     }
