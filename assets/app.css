@@ -142,11 +142,14 @@ button { color: inherit; }
     text-align: left;
 }
 .nav button[data-tab="overview"] { --menu-color: var(--blue); }
-.nav button[data-tab="databases"] { --menu-color: var(--violet); }
+.nav button[data-tab="sources"] { --menu-color: var(--violet); }
 .nav button[data-tab="history"] { --menu-color: var(--amber); }
 .nav button[data-tab="schedules"] { --menu-color: var(--cyan); }
 .nav button[data-tab="storage"] { --menu-color: var(--rose); }
+.nav button[data-tab="backup"] { --menu-color: var(--success); }
+.nav button[data-tab="realtime"] { --menu-color: var(--cyan); }
 .nav button[data-tab="settings"] { --menu-color: var(--slate); }
+.nav button[data-tab="about"] { --menu-color: var(--blue); }
 .nav button i {
     display: grid;
     width: 28px;
@@ -955,6 +958,8 @@ button.file-name:hover { color:var(--blue); }
 .schedule-status-list strong { font-size:10px; text-align:right; }
 .disk-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .disk-actions { grid-column:1/-1; display:flex; justify-content:flex-end; }
+.storage-mounts { grid-column:1/-1; }
+.storage-mounts > .panel-heading { margin-top:8px; }
 .explorer-layout .storage-explorer { grid-column:1/-1; }
 .explorer-summary { grid-column:1/-1; }
 .about-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }

@@ -10,7 +10,7 @@ const app = document.querySelector("#app");
         ["sources", "▦", "Sumber"],
         ["history", "↺", "Riwayat"],
         ["schedules", "◷", "Jadwal"],
-        ["storage", "▤", "Disk"],
+        ["storage", "▤", "Penyimpanan"],
         ["backup", "7Z", "Backup"],
         ["realtime", "↕", "Realtime"],
         ["settings", "⚙", "Pengaturan"],
@@ -442,29 +442,40 @@ const app = document.querySelector("#app");
 
     function renderStorage() {
         const disks = state.disks?.disks || [];
-        return `<div class="grid disk-list">
-            ${disks.map((disk) => `<article class="panel capacity">
+        const target = state.dashboard.disk;
+        return `<div class="grid storage-layout">
+            <article class="panel capacity"><div class="panel-heading"><div><p class="eyebrow">DISK TUJUAN</p>
+                <h2>${target.available ? "Storage terhubung" : "Storage tidak tersedia"}</h2></div>
+                <span class="status ${target.available ? "status-success" : "status-failed"}">${target.available ? "Online" : "Periksa"}</span></div>
+                <p class="path">${escapeHtml(target.path)}</p>
+                <div class="capacity-number"><strong>${bytes(target.used)}</strong><span>dari ${bytes(target.total)}</span></div>
+                <div class="capacity-track"><i style="width:${Math.min(target.used_percent, 100)}%"></i></div>
+                <div class="capacity-foot"><span>${target.used_percent}% terpakai</span><strong>${bytes(target.free)} tersedia</strong></div>
+            </article>
+            <article class="panel"><p class="eyebrow">VERIFIKASI TUJUAN</p><h2>Syarat backup sukses</h2>
+                <ol class="checks"><li><i>1</i>Folder tanggal berhasil dibuat</li><li><i>2</i>File sementara memiliki ukuran valid</li>
+                    <li><i>3</i>Arsip lulus pengujian 7z t</li><li><i>4</i>File final tersedia di folder tujuan</li></ol>
+            </article>
+            <section class="storage-mounts">
+                <div class="panel-heading"><div><p class="eyebrow">DISK HOST</p><h2>Penyimpanan tersedia</h2></div>
+                    <button class="button ghost" data-action="disk-refresh"><span>↻</span>Refresh disk</button></div>
+                <div class="grid disk-list">
+                    ${disks.map((disk) => `<article class="panel capacity">
                 <div class="panel-heading"><div><p class="eyebrow">MOUNT HOST</p><h2>${escapeHtml(disk.path)}</h2></div>
                     <span class="status status-success">Online</span></div>
                 <div class="capacity-number"><strong>${bytes(disk.used)}</strong><span>dari ${bytes(disk.total)}</span></div>
                 <div class="capacity-track"><i style="width:${Math.min(disk.used_percent, 100)}%"></i></div>
                 <div class="capacity-foot"><span>${disk.used_percent}% terpakai</span><strong>${bytes(disk.free)} tersedia</strong></div>
-            </article>`).join("") || `<article class="panel full"><div class="empty"><strong>Disk belum dimuat</strong>Tekan refresh untuk membaca mount yang tersedia.</div></article>`}
-            <div class="disk-actions"><button class="button ghost" data-action="disk-refresh"><span>↻</span>Refresh disk</button></div>
+                    </article>`).join("") || `<article class="panel"><div class="empty"><strong>Disk belum dimuat</strong>Tekan refresh untuk membaca mount yang tersedia.</div></article>`}
+                </div>
+            </section>
         </div>`;
     }
 
     function renderExplorer(kind) {
-        const disk = kind === "backup"
-            ? state.dashboard.disk
-            : {
-                available: true,
-                path: state.dashboard.settings.staging_dir,
-                total: 0,
-                used: 0,
-                free: 0,
-                used_percent: 0,
-            };
+        const rootPath = kind === "backup"
+            ? state.dashboard.settings.backup_dir
+            : state.dashboard.settings.staging_dir;
         const listing = state.storage;
         const query = state.storageQuery.toLowerCase();
         const entries = (listing?.entries || []).filter((entry) =>
@@ -479,25 +490,6 @@ const app = document.querySelector("#app");
             }),
         ].join("");
         return `<div class="grid storage-layout explorer-layout">
-            ${kind === "backup" ? `
-            <article class="panel capacity"><div class="panel-heading"><div><p class="eyebrow">DISK TUJUAN</p>
-                <h2>${disk.available ? "Storage terhubung" : "Storage tidak tersedia"}</h2></div>
-                <span class="status ${disk.available ? "status-success" : "status-failed"}">${disk.available ? "Online" : "Periksa"}</span></div>
-                <p class="path">${escapeHtml(disk.path)}</p>
-                <div class="capacity-number"><strong>${bytes(disk.used)}</strong><span>dari ${bytes(disk.total)}</span></div>
-                <div class="capacity-track"><i style="width:${Math.min(disk.used_percent, 100)}%"></i></div>
-                <div class="capacity-foot"><span>${disk.used_percent}% terpakai</span><strong>${bytes(disk.free)} tersedia</strong></div>
-            </article>` : `
-            <article class="panel explorer-summary"><p class="eyebrow">DATA REALTIME</p>
-                <h2>Hasil sinkronisasi terbaru</h2>
-                <p class="path">${escapeHtml(disk.path)}</p>
-                <p class="muted">Folder ini diperbarui oleh rsync dan menjadi sumber pembuatan backup.</p>
-            </article>`}
-            ${kind === "backup" ? `
-            <article class="panel"><p class="eyebrow">VERIFIKASI TUJUAN</p><h2>Syarat backup sukses</h2>
-                <ol class="checks"><li><i>1</i>Folder tanggal berhasil dibuat</li><li><i>2</i>File sementara memiliki ukuran valid</li>
-                    <li><i>3</i>Arsip lulus pengujian 7z t</li><li><i>4</i>File final tersedia di folder tujuan</li></ol>
-            </article>` : ""}
             <article class="panel storage-explorer">
                 <div class="panel-heading">
                     <div><p class="eyebrow">FILE EXPLORER</p><h2>${kind === "backup" ? "File hasil backup" : "Data realtime"}</h2>
@@ -547,7 +539,7 @@ const app = document.querySelector("#app");
                 `}
                 <footer class="storage-foot">
                     <span>${entries.length} item ditampilkan</span>
-                    <code>${escapeHtml(listing?.root || disk.path)}${state.storagePath ? `/${escapeHtml(state.storagePath)}` : ""}</code>
+                    <code>${escapeHtml(listing?.root || rootPath)}${state.storagePath ? `/${escapeHtml(state.storagePath)}` : ""}</code>
                 </footer>
             </article>
         </div>`;
@@ -659,13 +651,13 @@ const app = document.querySelector("#app");
             <p class="muted">Masukkan satu path folder remote per baris. Alias opsional dapat ditulis sebagai <code>alias=/path/folder</code>.</p>
             <form class="form" data-form="${source ? "source-edit" : "source-add"}">
                 ${source ? `<input type="hidden" name="id" value="${source.id}">` : ""}
-                <label>Nama sumber<input name="name" value="${escapeHtml(source?.name || "")}" placeholder="CUSJ Airupas" maxlength="128" required></label>
+                <label>Nama sumber<input name="name" value="${escapeHtml(source?.name || "")}" placeholder="JERIYANT" maxlength="128" required></label>
                 <label>Mode arsip<select name="archive_mode">
                     <option value="combined" ${source?.archive_mode === "separate" ? "" : "selected"}>Gabungkan menjadi satu file 7z</option>
                     <option value="separate" ${source?.archive_mode === "separate" ? "selected" : ""}>Satu file 7z untuk setiap path</option>
                 </select></label>
-                <label>Subfolder hasil (opsional)<input name="output_subdirectory" value="${escapeHtml(source?.output_subdirectory || "")}" placeholder="cusj-airupas"></label>
-                <label>Path sumber<textarea name="paths" rows="8" placeholder="/var/lib/mysql/cusj_airupas&#10;/var/lib/mysql/cusj_airupas_sys&#10;sakep=/var/lib/mysql/cusj_airupas_sakep" required>${escapeHtml(paths)}</textarea>
+                <label>Subfolder hasil (opsional)<input name="output_subdirectory" value="${escapeHtml(source?.output_subdirectory || "")}" placeholder="Kosong"></label>
+                <label>Path sumber<textarea name="paths" rows="8" placeholder="/var/lib/mysql/JERIYANT&#10;/var/lib/mysql/JERIYANT_sys&#10;/var/lib/mysql/JERIYANT_sakep" required>${escapeHtml(paths)}</textarea>
                     <small>Folder dapat berasal dari database, website, konfigurasi, dokumen, atau direktori lainnya.</small></label>
                 <button class="button primary wide action-add-dialog"><span>${source ? "✓" : "＋"}</span>${source ? "Simpan perubahan" : "Tambahkan sumber"}</button>
             </form>`);

@@ -225,7 +225,8 @@ path eksplisit. Arsip hasil backup yang sudah ada tetap dipertahankan.
 
 Menu **Dashboard** menampilkan status worker, jadwal, uptime, CPU, memory,
 latensi browser ke server, kapasitas tujuan backup, aktivitas terbaru, dan
-status koneksi SSH. Menu **Disk** menampilkan mount yang tersedia pada host.
+status koneksi SSH. Menu **Penyimpanan** menampilkan kapasitas tujuan, aturan
+verifikasi, serta mount yang tersedia pada host.
 Menu **Backup** menyediakan explorer dan upload/download arsip, sedangkan menu
 **Realtime** menyediakan explorer hasil rsync. Menu **About** berisi versi dan
 pengecekan pembaruan GitHub. Status **Terhubung** hanya tampil jika target
