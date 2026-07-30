@@ -505,7 +505,7 @@ const app = document.querySelector("#app");
                 ? `${active.source_name} Sedang Diproses. ${d.queue_count} Pekerjaan Menunggu.${warnings.length ? ` Catatan: ${warnings.join(" · ")}` : ""}`
                 : warnings.length
                     ? warnings.join(" · ")
-                    : "Worker Aktif · SSH Terhubung · Folder Backup Tersedia · Ruang Disk Mencukupi · CPU Dan Memory Normal · Latensi Normal · Ada Jadwal Aktif · Tidak Ada Kegagalan Dalam 24 Jam";
+                    : "Worker, koneksi, penyimpanan, dan otomasi dalam kondisi baik.";
         const healthBadge = {
             critical: "!",
             warning: "WARN",
