@@ -100,6 +100,19 @@ const app = document.querySelector("#app");
             <circle cx="12" cy="12" r="2.75"></circle>
         </svg>`;
 
+    const openIcon = () => `
+        <svg class="row-action-icon open-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M8 5.5 14.5 12 8 18.5"></path>
+            <path d="M4.5 12h10"></path>
+        </svg>`;
+
+    const loginIcon = () => `
+        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M13 5h5a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5"></path>
+            <path d="m10 8 4 4-4 4"></path>
+            <path d="M14 12H3"></path>
+        </svg>`;
+
     const diskForPath = (path, disks) => {
         const normalized = String(path ?? "").replace(/\/+$/, "") || "/";
         return [...disks]
@@ -189,17 +202,23 @@ const app = document.querySelector("#app");
                         <span class="brand-copy"><strong>J-BACKUP</strong><small>Server data safety</small></span>
                     </div>
                     <p class="eyebrow">${setupRequired ? "PENGATURAN PERTAMA" : "AREA ADMINISTRATOR"}</p>
-                    <h1>${setupRequired ? "Buat akses administrator" : "Selamat datang kembali"}</h1>
+                    <h1>${setupRequired ? "Buat akses administrator" : "Selamat Datang"}</h1>
                     <p class="muted">${setupRequired
                         ? "Akun ini melindungi konfigurasi dan pekerjaan backup."
                         : "Masuk untuk mengelola sinkronisasi dan backup server."}</p>
                     <form class="form" data-form="auth">
                         <label>Username<input name="username" autocomplete="username" minlength="3" required></label>
-                        <label>Password<input name="password" type="password" minlength="1"
-                            autocomplete="${setupRequired ? "new-password" : "current-password"}" required></label>
+                        <label>Password<span class="password-control">
+                            <input id="auth-password" name="password" type="password" minlength="1"
+                                autocomplete="${setupRequired ? "new-password" : "current-password"}" required>
+                            <button class="password-toggle" type="button" data-action="toggle-auth-password"
+                                aria-label="Tampilkan password" aria-pressed="false" title="Tampilkan password">
+                                <span class="eye-icon" aria-hidden="true"></span>
+                            </button>
+                        </span></label>
                         ${error ? `<p class="auth-error">${escapeHtml(error)}</p>` : ""}
                         <button class="button primary wide action-access" type="submit">
-                            <span>→</span>${setupRequired ? "Buat akun & masuk" : "Masuk ke dashboard"}
+                            ${loginIcon()}${setupRequired ? "Buat akun & masuk" : "Masuk ke dashboard"}
                         </button>
                     </form>
                 </section>
@@ -321,8 +340,8 @@ const app = document.querySelector("#app");
         await loadDashboard();
         showModal(`
             <p class="eyebrow">HASIL IMPORT</p>
-            <h2>${payload.imported_count || 0} sumber berhasil ditambahkan</h2>
-            <p class="muted">${payload.failed_count || 0} baris tidak dapat diimpor.</p>
+            <h2>${payload.imported_count || 0} sumber berhasil diproses</h2>
+            <p class="muted">${payload.created_count || 0} baru · ${payload.updated_count || 0} diperbarui · ${payload.failed_count || 0} gagal.</p>
             <div class="import-summary">
                 <div><strong>${payload.imported_count || 0}</strong><span>Berhasil</span></div>
                 <div class="${payload.failed_count ? "has-errors" : ""}">
@@ -565,7 +584,10 @@ const app = document.querySelector("#app");
 
     function renderSources() {
         const d = state.dashboard;
-        const filtered = d.sources.filter((item) => item.name.toLowerCase().includes(state.query.toLowerCase()));
+        const filtered = d.sources.filter((item) =>
+            `${item.source_code || ""} ${item.name}`.toLowerCase()
+                .includes(state.query.toLowerCase())
+        );
         return `
             <article class="panel full">
                 <div class="panel-heading">
@@ -593,6 +615,7 @@ const app = document.querySelector("#app");
                             <div class="database-icon">${escapeHtml(sourceInitials(item.name))}</div>
                             <div class="database-copy"><div class="database-title">
                                 <span class="source-id">${escapeHtml(item.id)}</span>
+                                <span class="source-code">${escapeHtml(item.source_code)}</span>
                                 <strong>${escapeHtml(item.name)}</strong>
                             </div>
                                 <small>${item.paths.map((path) => escapeHtml(path.path)).join(" · ")}</small></div>
@@ -793,7 +816,7 @@ const app = document.querySelector("#app");
                                         </a>
                                     ${entry.type === "directory" ? `
                                     <button class="row-button" data-storage-path="${escapeHtml(entry.path)}"
-                                        aria-label="Buka ${escapeHtml(entry.name)}">→</button>` : ""}
+                                        aria-label="Buka ${escapeHtml(entry.name)}">${openIcon()}</button>` : ""}
                                 </span>
                             </div>`).join("")}
                     </div>
@@ -1029,6 +1052,13 @@ const app = document.querySelector("#app");
             <p class="muted">Masukkan satu path folder remote per baris. Alias opsional dapat ditulis sebagai <code>alias=/path/folder</code>.</p>
             <form class="form" data-form="${source ? "source-edit" : "source-add"}">
                 ${source ? `<input type="hidden" name="id" value="${source.id}">` : ""}
+                <label>Kode sumber<input name="source_code"
+                    value="${escapeHtml(source?.source_code || "")}"
+                    placeholder="JERIYANT" maxlength="64"
+                    pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,63}"
+                    ${source ? "readonly" : "required"}>
+                    <small>Kode stabil untuk pembaruan saat impor${source ? " dan tidak diubah setelah dibuat" : ""}.</small>
+                </label>
                 <label>Nama sumber<input name="name" value="${escapeHtml(source?.name || "")}" placeholder="JERIYANT" maxlength="128" required></label>
                 <label>Mode arsip<select name="archive_mode">
                     <option value="combined" ${source?.archive_mode === "separate" ? "" : "selected"}>Gabungkan menjadi satu file 7z</option>
@@ -1050,6 +1080,7 @@ const app = document.querySelector("#app");
                 <div class="table-wrap">
                     <table>
                         <thead><tr>
+                            <th>kode_sumber *</th>
                             <th>nama_sumber *</th>
                             <th>mode_arsip</th>
                             <th>subfolder_hasil</th>
@@ -1057,6 +1088,7 @@ const app = document.querySelector("#app");
                             <th>aktif</th>
                         </tr></thead>
                         <tbody><tr>
+                            <td>JERIYANT</td>
                             <td>JERIYANT</td>
                             <td>gabung</td>
                             <td>jeriyant</td>
@@ -1066,7 +1098,9 @@ const app = document.querySelector("#app");
                     </table>
                 </div>
                 <ul>
+                    <li><strong>kode_sumber</strong> adalah kode stabil untuk membuat atau memperbarui sumber tanpa mengganti ID internal.</li>
                     <li><strong>nama_sumber</strong> dan <strong>path_sumber</strong> wajib diisi.</li>
+                    <li>File lama tanpa kolom kode tetap diterima; kode dibuat otomatis dari nama.</li>
                     <li><strong>mode_arsip:</strong> isi <code>gabung</code> atau <code>terpisah</code>.</li>
                     <li>Untuk beberapa path, buat baris baru di dalam sel Excel dengan <code>Alt+Enter</code>. Tanda <code>|</code> juga didukung.</li>
                     <li>Alias path dapat ditulis sebagai <code>alias=/path/folder</code>.</li>
@@ -1435,6 +1469,16 @@ const app = document.querySelector("#app");
                     visible ? "Sembunyikan password SSH" : "Tampilkan password SSH"
                 );
                 target.title = visible ? "Sembunyikan password" : "Tampilkan password";
+            } else if (target.dataset.action === "toggle-auth-password") {
+                const password = document.querySelector("#auth-password");
+                const visible = password?.type === "password";
+                if (password) password.type = visible ? "text" : "password";
+                target.classList.toggle("visible", visible);
+                target.setAttribute("aria-pressed", String(visible));
+                target.setAttribute(
+                    "aria-label",
+                    visible ? "Sembunyikan password" : "Tampilkan password"
+                );
             } else if (target.dataset.action === "theme") {
                 const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
                 document.documentElement.dataset.theme = next;
@@ -1470,7 +1514,10 @@ const app = document.querySelector("#app");
             }
             else if (target.dataset.action === "close-modal") closeModal();
             else if (target.dataset.action === "select-all") {
-                const filtered = state.dashboard.sources.filter((item) => item.name.toLowerCase().includes(state.query.toLowerCase()));
+                const filtered = state.dashboard.sources.filter((item) =>
+                    `${item.source_code || ""} ${item.name}`.toLowerCase()
+                        .includes(state.query.toLowerCase())
+                );
                 state.selected = state.selected.size === filtered.length
                     ? new Set()
                     : new Set(filtered.map((item) => item.id));

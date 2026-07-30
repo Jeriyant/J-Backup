@@ -99,13 +99,32 @@ try {
     );
     $legacySource = $database->sources()[0];
     assertTrue(
+        $legacySource['source_code'] === 'LEGACY-SOURCE',
+        'Migrasi tidak membuat kode sumber stabil untuk data lama.'
+    );
+    assertTrue(
         array_column($legacySource['paths'], 'path') === [
             '/var/lib/mysql/legacy_source',
             '/var/lib/mysql/legacy_source_sys',
         ],
         'Database lama tidak dimigrasikan menjadi sumber dengan path eksplisit.'
     );
-    $database->deleteSource($legacySource['id']);
+    $legacyId = $legacySource['id'];
+    $updatedLegacySource = $database->upsertSourceByCode([
+        'source_code' => 'legacy-source',
+        'name' => 'Legacy Source Updated',
+        'archive_mode' => 'combined',
+        'output_subdirectory' => '',
+        'paths' => ['/srv/legacy-updated'],
+        'enabled' => true,
+    ]);
+    assertTrue(
+        $updatedLegacySource['id'] === $legacyId
+            && $updatedLegacySource['name'] === 'Legacy Source Updated'
+            && $updatedLegacySource['source_code'] === 'LEGACY-SOURCE',
+        'Upsert kode sumber mengganti ID internal atau gagal memperbarui data.'
+    );
+    $database->deleteSource($legacyId);
     assertTrue(
         $database->settings()['remote_user'] === 'root'
             && $database->settings()['staging_dir'] === $root . '/Realtime-Data'

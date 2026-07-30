@@ -592,6 +592,32 @@ try {
             && $importedSources['Import Arsip']['enabled'] === false,
         'Hasil import tidak mengikuti mode, path, alias, atau status aktif.'
     );
+    $stableId = $importedSources['Import Dokumen']['id'];
+    $upsertBoundary = '----JBackupUpsert' . bin2hex(random_bytes(6));
+    $upsertCsv = "kode_sumber,nama_sumber,mode_arsip,subfolder_hasil,path_sumber,aktif\r\n"
+        . "IMPORT-DOKUMEN,Dokumen Diperbarui,gabung,dokumen-baru,/srv/dokumen-baru,ya\r\n";
+    $upsertMultipart = "--{$upsertBoundary}\r\n"
+        . "Content-Disposition: form-data; name=\"file\"; filename=\"upsert.csv\"\r\n"
+        . "Content-Type: text/csv\r\n\r\n"
+        . $upsertCsv . "\r\n"
+        . "--{$upsertBoundary}--\r\n";
+    $sourceUpsert = $rawRequest(
+        'source_import',
+        'POST',
+        $upsertMultipart,
+        "multipart/form-data; boundary={$upsertBoundary}"
+    );
+    $sourceUpsertBody = is_string($sourceUpsert['body'])
+        ? json_decode($sourceUpsert['body'], true)
+        : null;
+    assertHttp(
+        $sourceUpsert['status'] === 201
+            && $sourceUpsertBody['created_count'] === 0
+            && $sourceUpsertBody['updated_count'] === 1
+            && $sourceUpsertBody['sources'][0]['id'] === $stableId
+            && $sourceUpsertBody['sources'][0]['name'] === 'Dokumen Diperbarui',
+        'Import berdasarkan kode sumber tidak mempertahankan ID internal.'
+    );
 
     $xlsxFile = $root . '/sumber.xlsx';
     $xlsx = new ZipArchive();

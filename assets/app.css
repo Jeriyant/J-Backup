@@ -214,6 +214,7 @@ button { color: inherit; }
     stroke-linecap:round;
     stroke-linejoin:round;
 }
+.row-action-icon.open-icon { width:20px; height:20px; stroke-width:2.8; }
 .main {
     min-height: 100vh;
     margin-left: 248px;
@@ -690,6 +691,19 @@ td small { overflow: hidden; max-width: 320px; margin-top: 4px; color: var(--mut
     font-size:7px;
     font-weight:900;
 }
+.source-code {
+    max-width:150px;
+    overflow:hidden;
+    border-radius:999px;
+    background:var(--surface-2);
+    padding:3px 7px;
+    color:var(--muted);
+    font:700 9px/1 "JetBrains Mono",monospace;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+.auth-card .password-control { margin-top:6px; }
+.auth-card .button-icon { width:18px; height:18px; }
 .database-copy strong { font-size: 12px; }
 .database-copy small { overflow: hidden; margin-top: 4px; color: var(--muted); font-family:var(--font-mono); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .switch { position: relative; display: inline-flex; }

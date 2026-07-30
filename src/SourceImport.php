@@ -56,6 +56,10 @@ final class SourceImport
             }
             $line = $index + 2;
             $name = $values['nama_sumber'] ?? '';
+            $sourceCode = $values['kode_sumber']
+                ?? $values['kode']
+                ?? $values['source_code']
+                ?? '';
             $paths = preg_split(
                 '/\r?\n|\s*\|\s*/',
                 $values['path_sumber'] ?? '',
@@ -69,6 +73,9 @@ final class SourceImport
             }
             $result[] = [
                 '_row' => $line,
+                'source_code' => $sourceCode !== ''
+                    ? $sourceCode
+                    : Database::sourceCodeFromName($name),
                 'name' => $name,
                 'archive_mode' => self::archiveMode(
                     $values['mode_arsip'] ?? ''

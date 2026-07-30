@@ -178,7 +178,10 @@ Saat pertama dibuka:
 8. Tambahkan satu atau beberapa **Sumber Backup** dari menu **Sumber**.
    Daftar sumber juga dapat diimpor dari file Excel `.xlsx` atau `.csv`
    menggunakan tombol **Import Excel** dan format tabel yang ditampilkan
-   aplikasi.
+   aplikasi. Gunakan kolom **kode_sumber** sebagai identitas stabil.
+   Impor berikutnya dengan kode yang sama akan memperbarui sumber tersebut
+   tanpa mengganti ID internal SQLite. File impor lama tanpa kolom ini tetap
+   didukung; kode dibuat otomatis dari nama sumber.
 9. Atur jadwal sinkronisasi dan backup.
 
 ### Sumber backup universal

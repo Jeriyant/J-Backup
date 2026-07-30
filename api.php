@@ -19,7 +19,7 @@ $auth = $container['auth'];
 /** @var \JBackup\SecretStore $secretStore */
 $secretStore = $container['secret_store'];
 
-const JBACKUP_VERSION = '0.4.0';
+const JBACKUP_VERSION = '1.0.0';
 
 function input(): array
 {
@@ -826,23 +826,31 @@ try {
             )
         );
         $imported = [];
+        $createdCount = 0;
+        $updatedCount = 0;
         $errors = [];
         foreach ($rows as $row) {
             $line = (int) $row['_row'];
             unset($row['_row']);
             try {
-                $imported[] = $database->createSource($row);
+                $existing = $database->sourceByCode(
+                    (string) ($row['source_code'] ?? '')
+                );
+                $imported[] = $database->upsertSourceByCode($row);
+                $existing === null ? $createdCount++ : $updatedCount++;
             } catch (PDOException $error) {
                 $errors[] = [
                     'row' => $line,
+                    'code' => (string) ($row['source_code'] ?? ''),
                     'name' => (string) ($row['name'] ?? ''),
                     'message' => $error->getCode() === '23000'
-                        ? 'Nama sumber sudah terdaftar.'
+                        ? 'Kode atau nama sumber sudah terdaftar.'
                         : 'Database menolak baris ini.',
                 ];
             } catch (Throwable $error) {
                 $errors[] = [
                     'row' => $line,
+                    'code' => (string) ($row['source_code'] ?? ''),
                     'name' => (string) ($row['name'] ?? ''),
                     'message' => $error->getMessage(),
                 ];
@@ -851,6 +859,8 @@ try {
         respond([
             'ok' => $imported !== [],
             'imported_count' => count($imported),
+            'created_count' => $createdCount,
+            'updated_count' => $updatedCount,
             'failed_count' => count($errors),
             'sources' => $imported,
             'errors' => $errors,

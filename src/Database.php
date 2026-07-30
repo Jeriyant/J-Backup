@@ -98,6 +98,7 @@ final class Database
 
             CREATE TABLE IF NOT EXISTS database_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_code TEXT NOT NULL DEFAULT '',
                 name TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 include_sys INTEGER NOT NULL DEFAULT 1,
                 archive_mode TEXT NOT NULL DEFAULT 'combined',
@@ -229,6 +230,17 @@ final class Database
                  ADD COLUMN output_subdirectory TEXT NOT NULL DEFAULT ''"
             );
         }
+        if (!in_array('source_code', $sourceColumns, true)) {
+            $this->pdo->exec(
+                "ALTER TABLE database_entries
+                 ADD COLUMN source_code TEXT NOT NULL DEFAULT ''"
+            );
+        }
+        $this->migrateSourceCodes();
+        $this->pdo->exec(
+            'CREATE UNIQUE INDEX IF NOT EXISTS database_entries_source_code_idx
+             ON database_entries(source_code COLLATE NOCASE)'
+        );
 
         $jobColumns = array_column(
             $this->pdo->query('PRAGMA table_info(jobs)')->fetchAll(),
@@ -331,6 +343,38 @@ final class Database
                     $position,
                 ]);
             }
+        }
+    }
+
+    private function migrateSourceCodes(): void
+    {
+        $rows = $this->pdo->query(
+            "SELECT id, name FROM database_entries
+             WHERE source_code = '' OR source_code IS NULL
+             ORDER BY id"
+        )->fetchAll();
+        if ($rows === []) {
+            return;
+        }
+        $used = array_fill_keys(array_map(
+            static fn (string $code): string => strtoupper($code),
+            $this->pdo->query(
+                "SELECT source_code FROM database_entries
+                 WHERE source_code <> ''"
+            )->fetchAll(PDO::FETCH_COLUMN)
+        ), true);
+        $update = $this->pdo->prepare(
+            'UPDATE database_entries SET source_code = ? WHERE id = ?'
+        );
+        foreach ($rows as $row) {
+            $base = self::sourceCodeFromName((string) $row['name']);
+            $code = $base;
+            $suffix = 2;
+            while (isset($used[$code])) {
+                $code = substr($base, 0, 55) . '-' . $suffix++;
+            }
+            $update->execute([$code, $row['id']]);
+            $used[$code] = true;
         }
     }
 
@@ -666,6 +710,25 @@ final class Database
         return $name;
     }
 
+    public static function validateSourceCode(string $code): string
+    {
+        $code = strtoupper(trim($code));
+        if (!preg_match('/^[A-Z0-9][A-Z0-9_.-]{0,63}$/', $code)) {
+            throw new RuntimeException(
+                'Kode sumber harus berisi 1–64 huruf, angka, titik, garis bawah, atau tanda hubung.'
+            );
+        }
+        return $code;
+    }
+
+    public static function sourceCodeFromName(string $name): string
+    {
+        $code = strtoupper(trim($name));
+        $code = preg_replace('/[^A-Z0-9]+/', '-', $code) ?? '';
+        $code = trim($code, '-');
+        return substr($code !== '' ? $code : 'SUMBER', 0, 64);
+    }
+
     public static function validateSourceAlias(string $alias): string
     {
         $alias = trim($alias);
@@ -698,7 +761,7 @@ final class Database
     {
         $where = $enabledOnly ? 'WHERE enabled = 1' : '';
         $rows = $this->pdo->query(
-            "SELECT id, name, include_sys, archive_mode, output_subdirectory,
+            "SELECT id, source_code, name, include_sys, archive_mode, output_subdirectory,
                     enabled, created_at, updated_at
              FROM database_entries {$where} ORDER BY name COLLATE NOCASE"
         )->fetchAll();
@@ -714,7 +777,7 @@ final class Database
     public function database(int $id): ?array
     {
         $statement = $this->pdo->prepare(
-            'SELECT id, name, include_sys, archive_mode, output_subdirectory,
+            'SELECT id, source_code, name, include_sys, archive_mode, output_subdirectory,
                     enabled, created_at, updated_at
              FROM database_entries WHERE id = ?'
         );
@@ -725,6 +788,11 @@ final class Database
 
     public function createDatabase(array $input): array
     {
+        $sourceCode = self::validateSourceCode((string) (
+            $input['source_code'] ?? self::sourceCodeFromName(
+                (string) ($input['name'] ?? '')
+            )
+        ));
         $name = self::validateSourceName((string) ($input['name'] ?? ''));
         $archiveMode = $this->validateArchiveMode(
             (string) ($input['archive_mode'] ?? 'combined')
@@ -737,15 +805,16 @@ final class Database
         $statement = $this->pdo->prepare(
             <<<'SQL'
             INSERT INTO database_entries(
-                name, include_sys, archive_mode, output_subdirectory,
+                source_code, name, include_sys, archive_mode, output_subdirectory,
                 enabled, created_at, updated_at
             )
-            VALUES (?, 0, ?, ?, ?, ?, ?)
+            VALUES (?, ?, 0, ?, ?, ?, ?, ?)
             SQL
         );
         $this->pdo->beginTransaction();
         try {
             $statement->execute([
+                $sourceCode,
                 $name,
                 $archiveMode,
                 $outputSubdirectory,
@@ -775,6 +844,9 @@ final class Database
             return null;
         }
 
+        $sourceCode = array_key_exists('source_code', $input)
+            ? self::validateSourceCode((string) $input['source_code'])
+            : $current['source_code'];
         $name = array_key_exists('name', $input)
             ? self::validateSourceName((string) $input['name'])
             : $current['name'];
@@ -793,7 +865,7 @@ final class Database
         $statement = $this->pdo->prepare(
             <<<'SQL'
             UPDATE database_entries
-            SET name = ?, include_sys = 0, archive_mode = ?,
+            SET source_code = ?, name = ?, include_sys = 0, archive_mode = ?,
                 output_subdirectory = ?, enabled = ?, updated_at = ?
             WHERE id = ?
             SQL
@@ -801,6 +873,7 @@ final class Database
         $this->pdo->beginTransaction();
         try {
             $statement->execute([
+                $sourceCode,
                 $name,
                 $archiveMode,
                 $outputSubdirectory,
@@ -820,6 +893,28 @@ final class Database
             throw $error;
         }
         return $this->database($id);
+    }
+
+    public function sourceByCode(string $code): ?array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT id FROM database_entries WHERE source_code = ? COLLATE NOCASE'
+        );
+        $statement->execute([self::validateSourceCode($code)]);
+        $id = $statement->fetchColumn();
+        return $id === false ? null : $this->database((int) $id);
+    }
+
+    public function upsertSourceByCode(array $input): array
+    {
+        $code = self::validateSourceCode((string) (
+            $input['source_code'] ?? ''
+        ));
+        $existing = $this->sourceByCode($code);
+        if ($existing !== null) {
+            return $this->updateDatabase((int) $existing['id'], $input);
+        }
+        return $this->createDatabase($input);
     }
 
     public function updateSource(int $id, array $input): ?array
@@ -1555,6 +1650,7 @@ final class Database
     {
         return [
             'id' => (int) $row['id'],
+            'source_code' => (string) ($row['source_code'] ?? ''),
             'name' => $row['name'],
             'archive_mode' => $row['archive_mode'] ?? 'combined',
             'output_subdirectory' => $row['output_subdirectory'] ?? '',
