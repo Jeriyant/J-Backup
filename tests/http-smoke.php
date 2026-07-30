@@ -388,6 +388,13 @@ try {
     }
     file_put_contents($managedKey, 'private-key-test');
     file_put_contents($managedKey . '.pub', 'ssh-ed25519 test-key');
+    file_put_contents(dirname($managedKey) . '/id_rsa', 'rsa-private-key-test');
+    file_put_contents(dirname($managedKey) . '/id_rsa.pub', 'ssh-rsa test-key');
+    file_put_contents(dirname($managedKey) . '/known_hosts', 'host-key-test');
+    file_put_contents(
+        dirname($managedKey) . '/ssh-copy-id.temporary',
+        'temporary-key-test'
+    );
 
     $resetRejected = $request('reset_database', 'POST', [
         'confirmation' => 'reset',
@@ -418,8 +425,11 @@ try {
         'Reset database tidak membersihkan seluruh data aplikasi.'
     );
     assertHttp(
-        !is_file($managedKey) && !is_file($managedKey . '.pub'),
-        'Reset database tidak menghapus key SSH lokal yang dikelola aplikasi.'
+        iterator_count(new FilesystemIterator(
+            dirname($managedKey),
+            FilesystemIterator::SKIP_DOTS
+        )) === 0,
+        'Reset database tidak menghapus seluruh file SSH lokal.'
     );
     assertHttp(
         is_file($backupRoot . '/2026/07/30/sample-backup.7z'),

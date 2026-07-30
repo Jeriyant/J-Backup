@@ -535,7 +535,7 @@ const app = document.querySelector("#app");
                 <div>
                     <p class="eyebrow">ZONA BERBAHAYA</p>
                     <h2>Reset Database</h2>
-                    <p>Menghapus akun administrator, konfigurasi, daftar database, jadwal, riwayat, antrean, dan kredensial SSH lokal. File hasil backup tidak dihapus.</p>
+                    <p>Menghapus akun administrator, konfigurasi, daftar database, jadwal, riwayat, antrean, password SSH, dan seluruh file key SSH lokal. File hasil backup tidak dihapus.</p>
                 </div>
                 <button class="button danger" type="button" data-action="reset-database">
                     <span>↺</span>Reset Database
@@ -575,7 +575,7 @@ const app = document.querySelector("#app");
         showModal(`
             <p class="eyebrow danger-copy">RESET DATABASE</p>
             <h2>Kembalikan aplikasi ke setup awal?</h2>
-            <p class="muted">Semua data aplikasi akan dihapus permanen. Arsip dalam folder tujuan backup tetap dipertahankan.</p>
+            <p class="muted">Semua data aplikasi, private key, public key, known_hosts, dan file SSH lokal lainnya akan dihapus permanen. Arsip backup tetap dipertahankan.</p>
             <div class="reset-warning">
                 <strong>Sebelum melanjutkan</strong>
                 <span>Disconnect SSH terlebih dahulu bila public key juga ingin dicabut dari server sumber.</span>

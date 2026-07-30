@@ -143,11 +143,11 @@ final class JobRunner
         $sshDirectory = dirname($keyPath);
         $this->appendSshLog("Memeriksa folder dan pasangan kunci SSH.\n");
         if (!is_dir($sshDirectory)) {
-            if (!mkdir($sshDirectory, 0700, true) && !is_dir($sshDirectory)) {
+            if (!mkdir($sshDirectory, 0770, true) && !is_dir($sshDirectory)) {
                 throw new RuntimeException('Folder SSH tidak dapat dibuat oleh worker.');
             }
         }
-        @chmod($sshDirectory, 0700);
+        @chmod($sshDirectory, 0770);
 
         $created = false;
         if (!is_file($keyPath)) {

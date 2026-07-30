@@ -117,7 +117,8 @@ Installer mengatur izin secara otomatis:
 - file aplikasi dimiliki `root`;
 - data runtime dan hasil backup dimiliki `jbackup`;
 - user Apache dimasukkan ke grup `jbackup`;
-- `storage/.ssh` menggunakan mode `700`;
+- `storage/.ssh` menggunakan mode `770` agar worker dapat membuat key dan
+  aplikasi web dapat membersihkannya saat Reset Database;
 - `storage/secret.key` menggunakan mode `640`.
 
 Untuk contoh aplikasi di `/opt/j-backup`:
@@ -237,7 +238,8 @@ Reset akan menghapus:
 - daftar database dan jadwal;
 - antrean serta riwayat pekerjaan;
 - status koneksi, tugas SSH, dan password SSH terenkripsi;
-- private/public key serta `known_hosts` yang dikelola di folder data aplikasi.
+- seluruh isi `storage/.ssh`, termasuk private key, public key, `known_hosts`,
+  dan file sementara `ssh-copy-id`.
 
 File arsip pada folder tujuan backup tidak dihapus. Public key yang sudah
 terpasang pada server sumber juga tidak dicabut oleh Reset Database. Gunakan

@@ -371,44 +371,45 @@ try {
             );
         }
 
-        $settingsBeforeReset = $database->settings();
-        $keyPath = trim((string) ($settingsBeforeReset['ssh_key_path'] ?? ''));
         $dataDirectory = rtrim((string) $container['data_directory'], '/\\');
-        $managedSshDirectory = realpath($dataDirectory . '/.ssh');
-        $cleanupWarnings = [];
+        $managedSshDirectory = $dataDirectory . '/.ssh';
+        $cleanupFailures = [];
+        if (is_dir($managedSshDirectory)) {
+            try {
+                $sshFiles = new RecursiveIteratorIterator(
+                    new RecursiveDirectoryIterator(
+                        $managedSshDirectory,
+                        FilesystemIterator::SKIP_DOTS
+                    ),
+                    RecursiveIteratorIterator::CHILD_FIRST
+                );
+                foreach ($sshFiles as $sshFile) {
+                    $path = $sshFile->getPathname();
+                    $removed = $sshFile->isDir() && !$sshFile->isLink()
+                        ? @rmdir($path)
+                        : @unlink($path);
+                    if (!$removed) {
+                        $cleanupFailures[] = $path;
+                    }
+                }
+            } catch (UnexpectedValueException) {
+                $cleanupFailures[] = $managedSshDirectory;
+            }
+        }
+        if ($cleanupFailures !== []) {
+            throw new HttpException(
+                'Reset dibatalkan karena file SSH lokal tidak dapat dihapus. '
+                . 'Jalankan kembali installer untuk memperbaiki izin folder .ssh.',
+                409
+            );
+        }
 
         $database->resetApplication();
-
-        $managedFiles = [$dataDirectory . '/.ssh/known_hosts'];
-        if ($keyPath !== '') {
-            $managedFiles[] = $keyPath;
-            $managedFiles[] = $keyPath . '.pub';
-        }
-        foreach (array_unique($managedFiles) as $managedFile) {
-            if (!is_file($managedFile)) {
-                continue;
-            }
-            $resolvedFile = realpath($managedFile);
-            if (
-                $managedSshDirectory === false
-                || $resolvedFile === false
-                || dirname($resolvedFile) !== $managedSshDirectory
-            ) {
-                $cleanupWarnings[] =
-                    'File SSH di luar folder data aplikasi dipertahankan.';
-                continue;
-            }
-            if (!@unlink($resolvedFile)) {
-                $cleanupWarnings[] =
-                    'Tidak dapat menghapus file lokal: ' . $resolvedFile;
-            }
-        }
-
         $auth->logout();
         respond([
             'ok' => true,
             'setup_required' => true,
-            'warnings' => $cleanupWarnings,
+            'warnings' => [],
         ]);
     }
 

@@ -141,10 +141,10 @@ for code_path in src assets bin deploy scripts index.php api.php og.png .htacces
 done
 install -d -m 0770 -o jbackup -g jbackup \
   "${data_dir}" "${data_dir}/staging" "${backup_dir}" "${log_dir}"
-install -d -m 0700 -o jbackup -g jbackup "${data_dir}/.ssh"
+install -d -m 0770 -o jbackup -g jbackup "${data_dir}/.ssh"
 chown -R jbackup:jbackup "${data_dir}"
 chmod 0770 "${data_dir}" "${data_dir}/staging"
-chmod 0700 "${data_dir}/.ssh"
+chmod 0770 "${data_dir}/.ssh"
 if [[ ! -f "${data_dir}/secret.key" ]]; then
   umask 0027
   head -c 32 /dev/urandom > "${data_dir}/secret.key"
