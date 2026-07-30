@@ -203,6 +203,7 @@ final class JobRunner
             'writable' => false,
             'test_file' => false,
             'disk' => false,
+            'web_access' => false,
         ];
         $result = [
             'ready' => false,
@@ -279,6 +280,16 @@ final class JobRunner
             return $result;
         }
 
+        $webAccess = $this->ensureWebFolderAccess($kind, $path);
+        $checks['web_access'] = $webAccess['ready'];
+        $result['web_user'] = $webAccess['web_user'];
+        if (!$webAccess['ready']) {
+            $result['reason_code'] = 'web_access_failed';
+            $result['message'] = 'Worker siap, tetapi File Explorer belum dapat membaca folder.';
+            $result['detail'] = $webAccess['detail'];
+            return $result;
+        }
+
         $total = disk_total_space($path);
         $free = disk_free_space($path);
         if ($total === false || $free === false) {
@@ -297,6 +308,105 @@ final class JobRunner
         $result['detail'] = 'Pengujian file berhasil dibuat dan dibersihkan oleh worker.';
         $result['commands'] = [];
         return $result;
+    }
+
+    private function ensureWebFolderAccess(string $kind, string $path): array
+    {
+        $webUser = $this->webUser();
+        if ($this->simulate) {
+            return [
+                'ready' => true,
+                'web_user' => $webUser,
+                'detail' => null,
+            ];
+        }
+        if (!is_executable('/usr/bin/setfacl')) {
+            return [
+                'ready' => false,
+                'web_user' => $webUser,
+                'detail' => 'Paket acl belum tersedia. Jalankan: sudo apt install acl',
+            ];
+        }
+
+        $resolved = realpath($path);
+        if ($resolved === false || !is_dir($resolved)) {
+            return [
+                'ready' => false,
+                'web_user' => $webUser,
+                'detail' => 'Folder tidak dapat di-resolve sebelum ACL diterapkan.',
+            ];
+        }
+
+        try {
+            $ancestors = [];
+            $parent = dirname($resolved);
+            while ($parent !== '/' && $parent !== '.') {
+                $ancestors[] = $parent;
+                $next = dirname($parent);
+                if ($next === $parent) {
+                    break;
+                }
+                $parent = $next;
+            }
+            foreach (array_reverse($ancestors) as $ancestor) {
+                $this->runUtility([
+                    '/usr/bin/setfacl',
+                    '--physical',
+                    '--modify',
+                    "user:{$webUser}:--x",
+                    '--',
+                    $ancestor,
+                ], 15);
+            }
+
+            $permissions = $kind === 'backup' ? 'rwx' : 'r-x';
+            $this->runUtility([
+                '/usr/bin/setfacl',
+                '--physical',
+                '--recursive',
+                '--modify',
+                "user:{$webUser}:{$permissions}",
+                '--',
+                $resolved,
+            ], 120);
+            $this->runUtility([
+                '/usr/bin/setfacl',
+                '--physical',
+                '--modify',
+                "default:user:{$webUser}:{$permissions}",
+                '--',
+                $resolved,
+            ], 15);
+        } catch (\Throwable $error) {
+            return [
+                'ready' => false,
+                'web_user' => $webUser,
+                'detail' => 'ACL untuk File Explorer gagal diterapkan: '
+                    . $error->getMessage(),
+            ];
+        }
+
+        return [
+            'ready' => true,
+            'web_user' => $webUser,
+            'detail' => null,
+        ];
+    }
+
+    private function webUser(): string
+    {
+        $configured = trim((string) getenv('JBACKUP_WEB_USER'));
+        if ($configured !== '' && preg_match('/^[A-Za-z0-9_.-]+$/', $configured)) {
+            return $configured;
+        }
+        if (function_exists('posix_getpwnam')) {
+            foreach (['www-data', 'apache'] as $candidate) {
+                if (is_array(posix_getpwnam($candidate))) {
+                    return $candidate;
+                }
+            }
+        }
+        return 'www-data';
     }
 
     private function workerUser(): string

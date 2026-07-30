@@ -29,6 +29,7 @@ const app = document.querySelector("#app");
         storagePath: "",
         storageQuery: "",
         storageLoading: false,
+        storageError: "",
         explorerKind: "backup",
         disks: null,
         latencyMs: null,
@@ -224,10 +225,15 @@ const app = document.querySelector("#app");
     async function loadStorage(path = state.storagePath) {
         state.storagePath = path;
         state.storageLoading = true;
+        state.storageError = "";
         if (["backup", "realtime"].includes(state.tab)) renderApp();
         try {
             state.storage = await api(`${state.explorerKind}_list`, { query: { path } });
             state.storagePath = state.storage.path;
+        } catch (error) {
+            state.storage = null;
+            state.storageError = error.message;
+            throw error;
         } finally {
             state.storageLoading = false;
             if (["backup", "realtime"].includes(state.tab)) renderApp();
@@ -701,6 +707,9 @@ const app = document.querySelector("#app");
                 </div>
                 ${state.storageLoading ? `
                     <div class="storage-loading"><i></i><span>Membaca folder tujuan…</span></div>
+                ` : state.storageError ? `
+                    <div class="empty storage-error"><strong>Folder tidak dapat dibaca</strong>
+                        ${escapeHtml(state.storageError)} Buka Pengaturan lalu jalankan Tes akses folder.</div>
                 ` : !listing ? `
                     <div class="empty"><strong>File explorer belum dimuat</strong>Tekan refresh untuk membaca folder tujuan.</div>
                 ` : entries.length ? `
@@ -1305,6 +1314,7 @@ const app = document.querySelector("#app");
                     state.storage = null;
                     state.storagePath = "";
                     state.storageQuery = "";
+                    state.storageError = "";
                     await loadStorage(state.storagePath);
                 } else if (state.tab === "settings") {
                     await revealStoredSshPassword();

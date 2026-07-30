@@ -36,7 +36,7 @@ if command -v apt-get >/dev/null 2>&1; then
   apt-get update
   apt-get install -y \
     apache2 php libapache2-mod-php php-cli php-sqlite3 php-zip php-xml \
-    rsync p7zip-full openssh-client sshpass ca-certificates
+    rsync p7zip-full openssh-client sshpass acl ca-certificates
   web_user="www-data"
   apache_service="apache2"
   apache_command="apache2ctl"
@@ -44,7 +44,7 @@ if command -v apt-get >/dev/null 2>&1; then
 elif command -v dnf >/dev/null 2>&1; then
   dnf install -y \
     httpd php php-cli php-pdo php-sqlite3 php-zip php-xml \
-    rsync p7zip p7zip-plugins openssh-clients sshpass ca-certificates
+    rsync p7zip p7zip-plugins openssh-clients sshpass acl ca-certificates
   web_user="apache"
   apache_service="httpd"
   apache_command="httpd"
@@ -103,6 +103,7 @@ verify_command "SSH client" "ssh"
 verify_command "ssh-keygen" "ssh-keygen"
 verify_command "ssh-copy-id" "ssh-copy-id"
 verify_command "sshpass" "sshpass"
+verify_command "setfacl" "setfacl"
 verify_command "CA certificates" "${ca_command}"
 
 if (( verification_failed != 0 )); then

@@ -217,7 +217,10 @@ function explorerRoot(array $settings, string $kind): string
     $configured = rtrim((string) ($settings[$setting] ?? ''), '/');
     $root = realpath($configured);
     if ($root === false || !is_dir($root)) {
-        throw new HttpException("Folder {$label} belum tersedia.", 404);
+        throw new HttpException(
+            "Folder {$label} tidak tersedia atau tidak dapat diakses oleh proses web.",
+            404
+        );
     }
     return rtrim($root, DIRECTORY_SEPARATOR);
 }

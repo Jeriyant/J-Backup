@@ -10,6 +10,7 @@ Group=@@WEB_GROUP@@
 Environment="JBACKUP_DATA_DIR=@@DATA_DIR@@"
 Environment="JBACKUP_REALTIME_DIR=@@REALTIME_DIR@@"
 Environment="JBACKUP_BACKUP_DIR=@@BACKUP_DIR@@"
+Environment="JBACKUP_WEB_USER=@@WEB_GROUP@@"
 WorkingDirectory=@@APP_DIR_SYSTEMD@@
 ExecStart=/usr/bin/php "@@APP_DIR@@/bin/worker.php"
 NoNewPrivileges=true
