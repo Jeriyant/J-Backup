@@ -35,6 +35,7 @@ const app = document.querySelector("#app");
         accountMenu: false,
         lastActivityAt: Date.now(),
         idleTimer: null,
+        mobileMenu: false,
     };
 
     const escapeHtml = (value) => String(value ?? "")
@@ -281,7 +282,7 @@ const app = document.querySelector("#app");
         const title = navItems.find(([id]) => id === state.tab)?.[2] || "J-BACKUP";
         app.innerHTML = `
             <div class="app-shell">
-                <aside class="sidebar">
+                <aside class="sidebar ${state.mobileMenu ? "mobile-open" : ""}">
                     <div class="brand">
                         <span class="brand-mark">J</span>
                         <span class="brand-copy"><strong>J-BACKUP</strong><small>Server data safety</small></span>
@@ -299,9 +300,18 @@ const app = document.querySelector("#app");
                         <button class="icon-button" data-action="theme" aria-label="Ganti tema">◐</button>
                     </div>
                 </aside>
+                ${state.mobileMenu ? `
+                    <button class="sidebar-scrim" data-action="mobile-menu-close"
+                        aria-label="Tutup menu navigasi"></button>` : ""}
                 <main class="main">
                     <header class="topbar">
-                        <div><p class="eyebrow">${escapeHtml(title.toUpperCase())}</p><h1>${escapeHtml(title)}</h1></div>
+                        <div class="topbar-title">
+                            <button class="mobile-menu-button" data-action="mobile-menu"
+                                aria-label="Buka menu navigasi" aria-expanded="${state.mobileMenu}">
+                                <span></span><span></span><span></span>
+                            </button>
+                            <div><p class="eyebrow">${escapeHtml(title.toUpperCase())}</p><h1>${escapeHtml(title)}</h1></div>
+                        </div>
                         <div class="top-actions">
                             <div class="account-control">
                                 <button class="user-chip" data-action="account-menu"
@@ -322,11 +332,12 @@ const app = document.querySelector("#app");
                                         </button>
                                     </div>` : ""}
                             </div>
-                            <button class="button ghost" data-action="manual"><span>▶</span>Jalankan manual</button>
+                            <button class="button manual-action" data-action="manual"><span>▶</span>Jalankan manual</button>
                         </div>
                     </header>
                     <section id="view">${renderView()}</section>
                 </main>
+                <footer class="app-copyright">Copyright © JERIYANT - BARAMCITY</footer>
             </div>`;
     }
 
@@ -767,11 +778,11 @@ const app = document.querySelector("#app");
             <article class="panel developer-card">
                 <p class="eyebrow">TENTANG PENGEMBANG</p>
                 <div class="developer-heading">
-                    <span class="developer-mark">J</span>
+                    <span class="brand-mark">J</span>
                     <div><h2>JERIYANT - BARAMCITY</h2>
                         <p>Seorang Penikmat Teknologi Kelas Berat</p></div>
                 </div>
-                <p class="developer-location">Laboratorium uji Berbasis di suatu daerah terdalam kalimantan</p>
+                <p class="developer-location">Laboratorium Uji Teknis Berbasi di Suatu Daerah Terdalam, Terdepan, dan Terluar di Kalimantan Barat</p>
             </article>
         </div>`;
     }
@@ -1104,6 +1115,7 @@ const app = document.querySelector("#app");
         try {
             if (target.dataset.tab) {
                 state.accountMenu = false;
+                state.mobileMenu = false;
                 state.tab = target.dataset.tab;
                 renderApp();
                 if (state.tab === "storage") {
@@ -1139,6 +1151,13 @@ const app = document.querySelector("#app");
                 const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
                 document.documentElement.dataset.theme = next;
                 localStorage.setItem("jbackup-theme", next);
+            } else if (target.dataset.action === "mobile-menu") {
+                state.mobileMenu = !state.mobileMenu;
+                state.accountMenu = false;
+                renderApp();
+            } else if (target.dataset.action === "mobile-menu-close") {
+                state.mobileMenu = false;
+                renderApp();
             } else if (target.dataset.action === "account-menu") {
                 state.accountMenu = !state.accountMenu;
                 renderApp();
