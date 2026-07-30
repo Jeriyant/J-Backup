@@ -970,7 +970,7 @@ button.file-name:hover { color:var(--blue); }
 .checks li { display:flex; align-items:center; gap:11px; color:var(--muted); font-size:10px; }
 .checks i { display:grid; width:29px; height:29px; place-items:center; border-radius:50%; background:color-mix(in srgb,var(--blue) 12%,transparent); color:var(--blue); font-size:9px; font-style:normal; font-weight:900; }
 .form { display:grid; gap:15px; }
-.form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:15px; }
+.form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-content:start; gap:15px; }
 .span-2 { grid-column:span 2; }
 .form small { font-weight:500; }
 .ssh-tools {
@@ -1055,8 +1055,11 @@ button.file-name:hover { color:var(--blue); }
 }
 .path-check {
     display:flex;
+    width:fit-content;
+    max-width:100%;
     align-items:center;
     gap:11px;
+    margin-left:auto;
     border:1px solid var(--line);
     border-radius:12px;
     background:var(--surface-2);

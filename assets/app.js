@@ -736,7 +736,7 @@ const app = document.querySelector("#app");
     function pathCheckMarkup(kind, result = null) {
         const label = kind === "realtime" ? "Realtime" : "Backup";
         if (!result) {
-            return `<div class="path-check empty" id="path-check-${kind}">
+            return `<div class="path-check" id="path-check-${kind}">
                 <span class="path-check-icon">?</span>
                 <span><strong>Akses folder belum diuji</strong>
                     <small>Tes dijalankan langsung oleh worker.</small></span>
