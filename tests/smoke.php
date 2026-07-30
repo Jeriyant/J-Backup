@@ -64,10 +64,28 @@ try {
     $database = new Database($root . '/j-backup.sqlite');
     assertTrue(
         $database->settings()['staging_dir']
-            === '/var/www/html/J-Backup/storage/staging'
+            === $root . '/staging'
         && $database->settings()['ssh_key_path']
-            === '/var/www/html/J-Backup/storage/.ssh/id_ed25519',
+            === $root . '/.ssh/id_ed25519',
         'Path runtime versi lama tidak dimigrasikan ke folder aplikasi.'
+    );
+    assertTrue(
+        $database->schedulerState('runtime_data_directory') === $root,
+        'Lokasi data runtime tidak tercatat untuk mendukung pemindahan aplikasi.'
+    );
+    $database->updateSettings([
+        'staging_dir' => '/srv/j-backup-lama/storage/staging',
+        'ssh_key_path' => '/srv/j-backup-lama/storage/.ssh/id_ed25519',
+    ]);
+    $database->setSchedulerState(
+        'runtime_data_directory',
+        '/srv/j-backup-lama/storage'
+    );
+    $database = new Database($root . '/j-backup.sqlite');
+    assertTrue(
+        $database->settings()['staging_dir'] === $root . '/staging'
+        && $database->settings()['ssh_key_path'] === $root . '/.ssh/id_ed25519',
+        'Path runtime tidak ikut berubah setelah folder aplikasi dipindahkan.'
     );
     $secretStore = new SecretStore($database, $root);
     $secretStore->set('ssh_password', 'rahasia-sementara');

@@ -7,10 +7,28 @@ if [[ "${EUID}" -ne 0 ]]; then
 fi
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-install_dir="/var/www/html/J-Backup"
-data_dir="${install_dir}/storage"
-backup_dir="/var/backups/j-backup"
-log_dir="/var/log/j-backup"
+install_dir="$(readlink -m -- "${JBACKUP_INSTALL_DIR:-${project_dir}}")"
+data_dir="$(readlink -m -- "${JBACKUP_DATA_DIR:-${install_dir}/storage}")"
+backup_dir="$(readlink -m -- "${JBACKUP_BACKUP_DIR:-/var/backups/j-backup}")"
+log_dir="$(readlink -m -- "${JBACKUP_LOG_DIR:-/var/log/j-backup}")"
+app_url_path="${JBACKUP_URL_PATH:-/$(basename "${install_dir}")}"
+app_url_path="/${app_url_path#/}"
+app_url_path="${app_url_path%/}"
+
+if [[ ! "${app_url_path}" =~ ^/[A-Za-z0-9._~/-]+$ ]] \
+  || [[ "${app_url_path}" == *"//"* ]] \
+  || [[ "${app_url_path}" == *"/../"* ]] \
+  || [[ "${app_url_path}" == "/" ]]; then
+  echo "JBACKUP_URL_PATH tidak valid: ${app_url_path}" >&2
+  exit 1
+fi
+
+for runtime_path in "${install_dir}" "${data_dir}" "${backup_dir}" "${log_dir}"; do
+  if [[ "${runtime_path}" == *$'\n'* || "${runtime_path}" == *'"'* ]]; then
+    echo "Lokasi mengandung karakter yang tidak didukung: ${runtime_path}" >&2
+    exit 1
+  fi
+done
 
 if command -v apt-get >/dev/null 2>&1; then
   apt-get update
@@ -95,6 +113,8 @@ fi
 if ! id jbackup >/dev/null 2>&1; then
   useradd --system --gid jbackup --home-dir "${data_dir}" \
     --shell /usr/sbin/nologin jbackup
+else
+  usermod --home "${data_dir}" jbackup
 fi
 usermod -a -G jbackup "${web_user}"
 
@@ -108,12 +128,13 @@ if [[ "${project_dir}" != "${install_dir}" ]]; then
     "${project_dir}/index.php" \
     "${project_dir}/api.php" \
     "${project_dir}/og.png" \
+    "${project_dir}/.htaccess" \
     "${install_dir}/"
   install -m 0644 "${project_dir}/Cara Install.md" "${install_dir}/Cara Install.md"
 fi
 rm -f "${install_dir}/README.md"
 chown root:root "${install_dir}"
-for code_path in src assets bin deploy scripts index.php api.php og.png "Cara Install.md"; do
+for code_path in src assets bin deploy scripts index.php api.php og.png .htaccess "Cara Install.md"; do
   if [[ -e "${install_dir}/${code_path}" ]]; then
     chown -R root:root "${install_dir}/${code_path}"
   fi
@@ -132,13 +153,54 @@ chown jbackup:jbackup "${data_dir}/secret.key"
 chmod 0640 "${data_dir}/secret.key"
 chmod 0755 "${install_dir}/bin/worker.php"
 
-install -m 0644 "${install_dir}/deploy/j-backup-worker.service" \
+render_template() {
+  local source_file="$1"
+  local target_file="$2"
+
+  JBACKUP_TEMPLATE_APP_DIR="${install_dir}" \
+  JBACKUP_TEMPLATE_DATA_DIR="${data_dir}" \
+  JBACKUP_TEMPLATE_BACKUP_DIR="${backup_dir}" \
+  JBACKUP_TEMPLATE_LOG_DIR="${log_dir}" \
+  JBACKUP_TEMPLATE_URL_PATH="${app_url_path}" \
+  php -r '
+    $source = $argv[1];
+    $target = $argv[2];
+    $appDirectory = (string) getenv("JBACKUP_TEMPLATE_APP_DIR");
+    $systemdPath = static fn (string $path): string => str_replace(
+        ["\\", " "],
+        ["\\x5c", "\\x20"],
+        $path
+    );
+    $replacements = [
+        "@@APP_DIR@@" => $appDirectory,
+        "@@APP_DIR_REGEX@@" => preg_quote($appDirectory, "#"),
+        "@@APP_DIR_SYSTEMD@@" => $systemdPath($appDirectory),
+        "@@DATA_DIR@@" => (string) getenv("JBACKUP_TEMPLATE_DATA_DIR"),
+        "@@BACKUP_DIR@@" => (string) getenv("JBACKUP_TEMPLATE_BACKUP_DIR"),
+        "@@LOG_DIR@@" => (string) getenv("JBACKUP_TEMPLATE_LOG_DIR"),
+        "@@APP_URL_PATH@@" => (string) getenv("JBACKUP_TEMPLATE_URL_PATH"),
+    ];
+    $rendered = strtr((string) file_get_contents($source), $replacements);
+    if (preg_match("/@@[A-Z0-9_]+@@/", $rendered)) {
+        fwrite(STDERR, "Template masih memiliki placeholder yang belum diisi.\n");
+        exit(1);
+    }
+    if (file_put_contents($target, $rendered) === false) {
+        fwrite(STDERR, "Tidak dapat menulis konfigurasi: {$target}\n");
+        exit(1);
+    }
+  ' "${source_file}" "${target_file}"
+  chmod 0644 "${target_file}"
+}
+
+render_template \
+  "${install_dir}/deploy/j-backup-worker.service" \
   /etc/systemd/system/j-backup-worker.service
 install -m 0644 "${install_dir}/deploy/j-backup-worker.timer" \
   /etc/systemd/system/j-backup-worker.timer
 
 if [[ "${apache_service}" == "apache2" ]]; then
-  install -m 0644 "${install_dir}/deploy/apache-j-backup.conf" \
+  render_template "${install_dir}/deploy/apache-j-backup.conf" \
     /etc/apache2/conf-available/j-backup.conf
   for php_conf_dir in /etc/php/*/apache2/conf.d; do
     if [[ -d "${php_conf_dir}" ]]; then
@@ -149,7 +211,7 @@ if [[ "${apache_service}" == "apache2" ]]; then
   a2enmod headers >/dev/null
   a2enconf j-backup >/dev/null
 else
-  install -m 0644 "${install_dir}/deploy/apache-j-backup.conf" \
+  render_template "${install_dir}/deploy/apache-j-backup.conf" \
     /etc/httpd/conf.d/j-backup.conf
   install -m 0644 "${install_dir}/deploy/php-j-backup.ini" \
     /etc/php.d/99-j-backup.ini
@@ -158,12 +220,21 @@ fi
 systemctl daemon-reload
 systemctl enable --now j-backup-worker.timer
 systemctl enable --now "${apache_service}"
+if [[ "${apache_service}" == "apache2" ]]; then
+  apache2ctl configtest
+else
+  httpd -t
+fi
 systemctl restart "${apache_service}"
+systemctl start j-backup-worker.service
 
 echo
 echo "J-BACKUP berhasil dipasang."
-echo "Buka: http://ALAMAT-SERVER/J-Backup/"
+echo "Lokasi aplikasi : ${install_dir}"
+echo "Lokasi database : ${data_dir}/j-backup.sqlite"
+echo "Lokasi backup   : ${backup_dir}"
+echo "Buka            : http://ALAMAT-SERVER${app_url_path}/"
 echo
 echo "Tambahkan SSH private key:"
-echo "  /var/www/html/J-Backup/storage/.ssh/id_ed25519"
+echo "  ${data_dir}/.ssh/id_ed25519"
 echo "Owner harus jbackup:jbackup dan permission 600."

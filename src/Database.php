@@ -10,17 +10,16 @@ use RuntimeException;
 final class Database
 {
     private PDO $pdo;
+    private array $defaultSettings;
 
     private const DEFAULT_SETTINGS = [
         'remote_host' => '',
         'remote_port' => '22',
         'remote_user' => 'backup',
         'remote_root' => '/var/lib/mysql',
-        'staging_dir' => '/var/www/html/J-Backup/storage/staging',
         'backup_dir' => '/var/backups/j-backup',
         'compression_level' => '9',
         'filename_template' => '{date}_{time}-{name}.7z',
-        'ssh_key_path' => '/var/www/html/J-Backup/storage/.ssh/id_ed25519',
         'ssh_key_type' => 'ed25519',
         'ssh_key_comment' => 'J-BACKUP-Key',
         'rsync_binary' => '/usr/bin/rsync',
@@ -34,9 +33,17 @@ final class Database
 
     public function __construct(string $file)
     {
-        $directory = dirname($file);
+        $directory = rtrim(dirname($file), '/\\');
         if (!is_dir($directory) && !mkdir($directory, 0770, true) && !is_dir($directory)) {
             throw new RuntimeException("Tidak dapat membuat direktori data: {$directory}");
+        }
+
+        $backupDirectory = getenv('JBACKUP_BACKUP_DIR');
+        $this->defaultSettings = self::DEFAULT_SETTINGS;
+        $this->defaultSettings['staging_dir'] = $directory . '/staging';
+        $this->defaultSettings['ssh_key_path'] = $directory . '/.ssh/id_ed25519';
+        if (is_string($backupDirectory) && trim($backupDirectory) !== '') {
+            $this->defaultSettings['backup_dir'] = rtrim($backupDirectory, '/\\');
         }
 
         $this->pdo = new PDO('sqlite:' . $file, null, null, [
@@ -181,19 +188,56 @@ final class Database
             );
         }
 
-        $runtimePrefix = '/var/www/html/J-Backup/storage/';
-        $legacyPrefix = '/var/lib/j-backup/';
+        $this->migrateRuntimePaths();
+    }
+
+    private function migrateRuntimePaths(): void
+    {
+        $runtimeDirectory = rtrim(dirname(
+            (string) $this->pdo->query('PRAGMA database_list')->fetch()['file']
+        ), '/\\');
+        $runtimePrefix = $runtimeDirectory . '/';
+        $previousRuntime = $this->pdo->prepare(
+            "SELECT value FROM scheduler_state WHERE key = 'runtime_data_directory'"
+        );
+        $previousRuntime->execute();
+        $previousDirectory = $previousRuntime->fetchColumn();
+        $legacyPrefixes = [
+            '/var/lib/j-backup/',
+            '/var/www/html/J-Backup/storage/',
+        ];
+        if (is_string($previousDirectory) && trim($previousDirectory) !== '') {
+            array_unshift(
+                $legacyPrefixes,
+                rtrim($previousDirectory, '/\\') . '/'
+            );
+        }
+
         $migrateRuntimePath = $this->pdo->prepare(
             "UPDATE settings
              SET value = ? || substr(value, ?)
              WHERE key IN ('staging_dir', 'ssh_key_path')
                AND value LIKE ?"
         );
-        $migrateRuntimePath->execute([
-            $runtimePrefix,
-            strlen($legacyPrefix) + 1,
-            $legacyPrefix . '%',
-        ]);
+        foreach (array_unique($legacyPrefixes) as $legacyPrefix) {
+            if ($legacyPrefix === $runtimePrefix) {
+                continue;
+            }
+            $migrateRuntimePath->execute([
+                $runtimePrefix,
+                strlen($legacyPrefix) + 1,
+                $legacyPrefix . '%',
+            ]);
+        }
+
+        $runtimeState = $this->pdo->prepare(
+            <<<'SQL'
+            INSERT INTO scheduler_state(key, value)
+            VALUES ('runtime_data_directory', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            SQL
+        );
+        $runtimeState->execute([$runtimeDirectory]);
     }
 
     private function seed(): void
@@ -201,7 +245,7 @@ final class Database
         $statement = $this->pdo->prepare(
             'INSERT OR IGNORE INTO settings(key, value) VALUES (:key, :value)'
         );
-        foreach (self::DEFAULT_SETTINGS as $key => $value) {
+        foreach ($this->defaultSettings as $key => $value) {
             $statement->execute(['key' => $key, 'value' => $value]);
         }
 

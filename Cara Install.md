@@ -1,135 +1,176 @@
 # Cara Install J-BACKUP di Debian
 
-J-BACKUP dipasang sebagai aplikasi PHP pada Apache. Web dan worker memakai
-database yang sama di dalam folder aplikasi:
+J-BACKUP dapat dipasang dari lokasi mana pun. Folder aplikasi tidak harus
+berada di `/var/www/html`. Installer membuat Apache Alias dan service worker
+berdasarkan lokasi sebenarnya secara otomatis.
+
+Secara bawaan, database dan data runtime disimpan di dalam folder aplikasi:
 
 ```text
-/var/www/html/J-Backup/storage/j-backup.sqlite
+<folder-aplikasi>/storage/j-backup.sqlite
 ```
 
-## 1. Upload aplikasi
+Web dan worker selalu diarahkan ke file SQLite yang sama.
 
-Upload seluruh isi proyek ke:
+## 1. Tentukan lokasi aplikasi
+
+Pilih folder permanen, misalnya:
 
 ```text
-/var/www/html/J-Backup
+/opt/j-backup
+/srv/apps/j-backup
+/var/www/aplikasi/J-Backup
+/mnt/e/Cursor-Project/J-Backup
 ```
 
-Contoh menggunakan `scp` dari komputer lokal:
+Jangan memasang aplikasi dari folder sementara yang akan dihapus, seperti
+`/tmp`.
+
+Contoh upload ke `/opt/j-backup`:
 
 ```bash
 scp -r J-Backup user@ALAMAT-SERVER:/tmp/
 ssh user@ALAMAT-SERVER
-sudo mkdir -p /var/www/html
-sudo cp -a /tmp/J-Backup /var/www/html/J-Backup
+sudo mkdir -p /opt/j-backup
+sudo cp -a /tmp/J-Backup/. /opt/j-backup/
+cd /opt/j-backup
 ```
 
-Jangan hanya mengupload `index.php`. Folder `assets`, `bin`, `deploy`, `src`,
-`scripts`, dan file lainnya harus ikut lengkap.
+Seluruh folder `assets`, `bin`, `deploy`, `src`, `scripts`, dan file aplikasi
+lainnya harus ikut diunggah.
 
-## 2. Jalankan script install
+## 2. Jalankan installer
 
-Masuk ke folder aplikasi:
+Jalankan installer dari folder aplikasi:
 
 ```bash
-cd /var/www/html/J-Backup
+cd /opt/j-backup
 sudo bash scripts/install-linux.sh
+```
+
+Secara bawaan installer menggunakan:
+
+```text
+Lokasi aplikasi : folder tempat script berada
+Lokasi data     : <folder-aplikasi>/storage
+Lokasi backup   : /var/backups/j-backup
+URL             : /<nama-folder>/
+```
+
+Jika foldernya `/opt/j-backup`, URL bawaannya menjadi:
+
+```text
+http://ALAMAT-SERVER/j-backup/
 ```
 
 Installer akan:
 
 - memasang Apache, PHP 8.2+, SQLite, Sodium, rsync, 7-Zip, OpenSSH, dan
   `sshpass`;
-- memverifikasi setiap paket dengan status `OK` atau `GAGAL`;
+- menampilkan verifikasi setiap paket dengan status `OK` atau `GAGAL`;
 - membuat user sistem `jbackup`;
-- membuat folder data, staging, backup, SSH, dan key enkripsi;
-- memasang konfigurasi Apache;
-- mengaktifkan worker setiap 15 detik.
+- menyiapkan database, staging, backup, SSH, dan key enkripsi;
+- membuat konfigurasi Apache berdasarkan lokasi aplikasi;
+- membuat service worker berdasarkan lokasi aplikasi;
+- mengaktifkan timer worker setiap 15 detik;
+- menjalankan worker sekali agar heartbeat langsung tersedia.
 
-## 3. Lokasi dan izin folder
+## 3. Pilihan lokasi dan URL khusus
 
-Lokasi yang digunakan:
+Installer menerima variabel berikut:
 
 ```text
-/var/www/html/J-Backup           file aplikasi
-/var/www/html/J-Backup/storage   database, key enkripsi, SSH, dan staging
-/var/backups/j-backup            hasil backup
-/var/log/j-backup                log operasional
+JBACKUP_INSTALL_DIR  lokasi akhir aplikasi
+JBACKUP_DATA_DIR     lokasi database, staging, secret.key, dan key SSH
+JBACKUP_BACKUP_DIR   lokasi hasil backup awal
+JBACKUP_LOG_DIR      lokasi log
+JBACKUP_URL_PATH     path URL Apache
 ```
 
-Installer mengatur izin secara otomatis. Untuk memeriksanya:
+Contoh menyalin source saat ini ke `/srv/apps/j-backup` dan memakai URL
+`/backup-server`:
 
 ```bash
-sudo chown -R root:root /var/www/html/J-Backup
-sudo chown -R jbackup:jbackup /var/www/html/J-Backup/storage /var/backups/j-backup
-sudo chmod 770 /var/www/html/J-Backup/storage /var/backups/j-backup
-sudo chmod 640 /var/www/html/J-Backup/storage/secret.key
+sudo env \
+  JBACKUP_INSTALL_DIR=/srv/apps/j-backup \
+  JBACKUP_URL_PATH=/backup-server \
+  bash scripts/install-linux.sh
 ```
 
-User Apache `www-data` dimasukkan ke grup `jbackup` agar web dapat memakai
-database dan folder backup tanpa menjalankan Apache sebagai root.
-
-### Migrasi dari versi lama
-
-Versi lama mungkin menyimpan database di `/var/lib/j-backup` atau folder proyek
-lain. Hentikan web dan worker sebelum menyalinnya:
+Contoh memisahkan data dari file aplikasi:
 
 ```bash
-sudo systemctl stop j-backup-worker.timer apache2
-sudo mkdir -p /var/www/html/J-Backup/storage
-sudo cp -a /var/lib/j-backup/j-backup.sqlite* /var/www/html/J-Backup/storage/ 2>/dev/null || true
-sudo cp -a /var/lib/j-backup/secret.key /var/www/html/J-Backup/storage/ 2>/dev/null || true
-sudo cp -a /var/lib/j-backup/.ssh /var/www/html/J-Backup/storage/ 2>/dev/null || true
-sudo chown -R jbackup:jbackup /var/www/html/J-Backup/storage
-sudo systemctl start apache2 j-backup-worker.timer
+sudo env \
+  JBACKUP_DATA_DIR=/srv/j-backup-data \
+  JBACKUP_BACKUP_DIR=/mnt/backup/j-backup \
+  bash scripts/install-linux.sh
 ```
 
-Jika database yang ingin dipertahankan berada di folder proyek WSL
-`/mnt/e/Cursor-Project/J-Backup/storage`, ganti `/var/lib/j-backup` pada
-perintah di atas dengan lokasi tersebut. Jangan menggabungkan dua file SQLite;
-pilih satu database yang datanya ingin dipertahankan.
+Jika `JBACKUP_INSTALL_DIR` tidak diberikan, aplikasi dipasang dan dijalankan
+langsung dari folder saat ini. Path URL harus diawali `/` dan hanya menggunakan
+huruf, angka, titik, garis bawah, tanda hubung, atau garis miring.
 
-## 4. Buka aplikasi
+## 4. Izin folder
 
-Buka:
+Installer mengatur izin secara otomatis:
+
+- file aplikasi dimiliki `root`;
+- data runtime dan hasil backup dimiliki `jbackup`;
+- user Apache dimasukkan ke grup `jbackup`;
+- `storage/.ssh` menggunakan mode `700`;
+- `storage/secret.key` menggunakan mode `640`.
+
+Untuk contoh aplikasi di `/opt/j-backup`:
+
+```bash
+sudo chown -R root:root /opt/j-backup
+sudo chown -R jbackup:jbackup \
+  /opt/j-backup/storage \
+  /var/backups/j-backup
+sudo chmod 770 /opt/j-backup/storage /var/backups/j-backup
+sudo chmod 640 /opt/j-backup/storage/secret.key
+```
+
+Semua direktori induk lokasi aplikasi harus dapat dilintasi oleh Apache dan
+user `jbackup`. Hindari menaruh aplikasi di home pribadi yang memiliki mode
+`700`.
+
+## 5. Buka dan setup aplikasi
+
+Buka URL yang dicetak installer, misalnya:
 
 ```text
-http://ALAMAT-SERVER/J-Backup/
+http://ALAMAT-SERVER/j-backup/
 ```
 
-Jika dipasang di WSL pada komputer yang sama:
+Jika memakai WSL pada komputer yang sama:
 
 ```text
-http://localhost/J-Backup/
+http://localhost/j-backup/
 ```
-
-Lakukan refresh penuh dengan `Ctrl+F5` setelah memperbarui aplikasi.
-
-## 5. Setup aplikasi
 
 Saat pertama dibuka:
 
-1. Buat username administrator.
-2. Gunakan password administrator minimal 6 karakter.
-3. Buka menu **Pengaturan**.
-4. Isi host, port, user, dan password SSH.
-5. Simpan pengaturan.
-6. Tekan **Setup koneksi** untuk membuat key dan memasangnya ke server sumber.
-7. Tekan **Tes koneksi** untuk memastikan autentikasi private key berhasil.
-8. Isi root database remote, folder staging, dan folder tujuan backup.
-9. Tambahkan nama database dari menu **Database**.
-10. Atur jadwal sinkronisasi dan backup.
+1. Buat administrator dengan password minimal 6 karakter.
+2. Buka menu **Pengaturan**.
+3. Isi host, port, user, dan password SSH.
+4. Simpan pengaturan.
+5. Tekan **Setup koneksi** untuk membuat dan memasang public key.
+6. Tekan **Tes koneksi** untuk menguji autentikasi private key.
+7. Isi root database remote, folder staging, dan tujuan backup.
+8. Tambahkan database dari menu **Database**.
+9. Atur jadwal sinkronisasi dan backup.
 
-Password SSH disimpan sebagai ciphertext Sodium SecretBox di SQLite. Key
-enkripsinya berada terpisah di:
+Password SSH disimpan terenkripsi memakai Sodium SecretBox. Key enkripsi
+berada di:
 
 ```text
-/var/www/html/J-Backup/storage/secret.key
+<lokasi-data>/secret.key
 ```
 
-Jangan menghapus atau mengganti `secret.key`. Tanpa file tersebut, password
-lama tidak dapat didekripsi. Password dan key enkripsi tidak pernah dikirim
-kembali ke browser.
+Password tersimpan dapat ditampilkan kembali hanya oleh administrator melalui
+sesi HTTPS atau akses localhost. Jangan menghapus `secret.key`; tanpa file itu,
+password lama tidak dapat didekripsi.
 
 ## 6. Periksa worker
 
@@ -137,67 +178,95 @@ kembali ke browser.
 sudo systemctl status j-backup-worker.timer
 sudo systemctl status j-backup-worker.service
 sudo systemctl list-timers j-backup-worker.timer
+sudo journalctl -u j-backup-worker.service -n 100 --no-pager
 ```
 
-Service bertipe `oneshot`, sehingga status `inactive (dead)` setelah selesai
-adalah normal. Timer harus berstatus `active (waiting)`.
+Service bertipe `oneshot`. Status `inactive (dead)` setelah proses selesai
+adalah normal. Timer harus berstatus `active (waiting)`, sedangkan aplikasi
+menampilkan **Worker siap** jika heartbeat masih baru.
 
-Jalankan worker sekarang:
+Jalankan worker segera:
 
 ```bash
 sudo systemctl start j-backup-worker.service
 ```
 
-Lihat log:
+Lihat lokasi yang benar-benar digunakan service:
 
 ```bash
-sudo journalctl -u j-backup-worker.service -n 100 --no-pager
+sudo systemctl show j-backup-worker.service \
+  -p Environment \
+  -p WorkingDirectory \
+  -p ExecStart
 ```
 
 ## 7. File Explorer backup
 
-Menu **Penyimpanan** menampilkan folder dan file di `/var/backups/j-backup`.
-Administrator dapat membuka folder tanggal, mencari, download, dan upload file
-`.7z`. Upload dengan nama yang sama akan ditolak.
+Menu **Penyimpanan** menampilkan lokasi tujuan backup yang disimpan pada
+pengaturan aplikasi. Administrator dapat membuka folder, mencari, download,
+dan upload file `.7z`. Upload dengan nama sama akan ditolak.
 
-Batas upload bawaan installer adalah 8 GB. Ubah
-`deploy/php-j-backup.ini` bila diperlukan, lalu jalankan installer kembali.
+Batas upload bawaan adalah 8 GB. Ubah `deploy/php-j-backup.ini`, lalu jalankan
+installer kembali untuk menerapkan nilai baru.
 
-## 8. Update aplikasi
+## 8. Memindahkan aplikasi
 
-Upload versi baru ke `/var/www/html/J-Backup`, lalu jalankan:
+Untuk memindahkan aplikasi tanpa kehilangan data:
 
 ```bash
-cd /var/www/html/J-Backup
+sudo systemctl stop j-backup-worker.timer apache2
+sudo mv /opt/j-backup /srv/apps/j-backup
+cd /srv/apps/j-backup
 sudo bash scripts/install-linux.sh
-sudo systemctl restart j-backup-worker.timer
-sudo systemctl restart apache2
+sudo systemctl start apache2 j-backup-worker.timer
+```
+
+Installer membuat ulang konfigurasi Apache dan worker dari lokasi baru.
+Pengaturan staging dan key SSH bawaan ikut dimigrasikan ke `storage` yang baru.
+Path yang sebelumnya diubah sendiri oleh pengguna tidak ditimpa.
+
+Jika hanya menyalin database dari instalasi lama, salin bersama `secret.key`
+dan folder `.ssh`:
+
+```bash
+sudo systemctl stop j-backup-worker.timer apache2
+sudo cp -a /LOKASI-LAMA/storage/. /LOKASI-BARU/storage/
+sudo chown -R jbackup:jbackup /LOKASI-BARU/storage
+cd /LOKASI-BARU
+sudo bash scripts/install-linux.sh
+```
+
+Jangan menggabungkan dua database SQLite. Pilih satu folder `storage` yang
+datanya ingin dipertahankan.
+
+## 9. Memperbarui aplikasi
+
+Timpa file kode pada folder aplikasi tanpa menghapus `storage`, lalu jalankan:
+
+```bash
+cd /LOKASI/APLIKASI
+sudo bash scripts/install-linux.sh
 ```
 
 Installer tidak menghapus database, password terenkripsi, private key SSH,
-staging, atau file backup yang sudah ada.
+staging, atau hasil backup yang sudah ada.
 
-## 9. Pemeriksaan masalah
-
-Periksa kebutuhan aplikasi:
+## 10. Pemeriksaan masalah
 
 ```bash
-cd /var/www/html/J-Backup
+cd /LOKASI/APLIKASI
 php bin/check-requirements.php
-```
-
-Periksa konfigurasi Apache:
-
-```bash
 sudo apache2ctl configtest
 sudo systemctl status apache2
+sudo systemctl status j-backup-worker.timer
 ```
 
-Pastikan web dan worker memakai database yang sama:
+Periksa database aktif pada output berikut:
 
-```text
-/var/www/html/J-Backup/storage/j-backup.sqlite
+```bash
+sudo systemctl show j-backup-worker.service -p Environment
 ```
 
-Jika tugas terus berada dalam antrean, periksa timer dan log worker pada langkah
-6.
+Nilai `JBACKUP_DATA_DIR` harus sama dengan folder `storage` yang digunakan
+aplikasi web. Jalankan installer kembali dari folder aplikasi jika lokasinya
+berbeda.

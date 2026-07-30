@@ -7,10 +7,12 @@ Wants=network-online.target
 Type=oneshot
 User=jbackup
 Group=jbackup
-Environment=JBACKUP_DATA_DIR=/var/www/html/J-Backup/storage
-WorkingDirectory=/var/www/html/J-Backup
-ExecStart=/usr/bin/php /var/www/html/J-Backup/bin/worker.php
+Environment="JBACKUP_DATA_DIR=@@DATA_DIR@@"
+Environment="JBACKUP_BACKUP_DIR=@@BACKUP_DIR@@"
+WorkingDirectory=@@APP_DIR_SYSTEMD@@
+ExecStart=/usr/bin/php "@@APP_DIR@@/bin/worker.php"
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
+ReadWritePaths="@@DATA_DIR@@" "@@BACKUP_DIR@@" "@@LOG_DIR@@"
 UMask=0007
