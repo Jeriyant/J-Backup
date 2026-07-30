@@ -205,24 +205,54 @@ try {
             && $initialDashboard['body']['settings']['staging_dir']
                 === $applicationRoot . '/Realtime-Data'
             && $initialDashboard['body']['settings']['backup_dir']
-                === $applicationRoot . '/Hasil-Backup',
+                === $applicationRoot . '/Hasil-Backup'
+            && array_key_exists('system', $initialDashboard['body'])
+            && array_key_exists('memory', $initialDashboard['body']['system']),
         'Default user SSH dan folder aplikasi pertama tidak benar.'
     );
 
     $backupRoot = $root . '/backups';
+    $realtimeRoot = $root . '/realtime';
     mkdir($backupRoot . '/2026/07/30', 0770, true);
+    mkdir($realtimeRoot . '/source-one', 0770, true);
     file_put_contents(
         $backupRoot . '/2026/07/30/sample-backup.7z',
         'simulated-7z-content'
     );
+    file_put_contents($realtimeRoot . '/source-one/data.txt', 'realtime-content');
     $settings = $request('settings_update', 'POST', [
         'backup_dir' => $backupRoot,
+        'staging_dir' => $realtimeRoot,
         'remote_host' => '127.0.0.1',
         'remote_port' => 22,
         'remote_user' => 'backup',
         'ssh_key_path' => $root . '/data/.ssh/id_ed25519',
     ]);
     assertHttp($settings['status'] === 200, 'Folder backup untuk explorer gagal disimpan.');
+
+    $diskList = $request('disk_list');
+    assertHttp(
+        $diskList['status'] === 200 && is_array($diskList['body']['disks']),
+        'Daftar disk host tidak dapat dibaca.'
+    );
+
+    $backupList = $request('backup_list');
+    assertHttp(
+        $backupList['status'] === 200
+            && $backupList['body']['entries'][0]['name'] === '2026',
+        'Explorer Backup baru tidak menampilkan folder tujuan.'
+    );
+    $realtimeList = $request(
+        'realtime_list',
+        'GET',
+        null,
+        ['path' => 'source-one']
+    );
+    assertHttp(
+        $realtimeList['status'] === 200
+            && $realtimeList['body']['entries'][0]['name'] === 'data.txt',
+        'Explorer Realtime tidak menampilkan hasil sinkronisasi.'
+    );
 
     $storageRoot = $request('storage_list');
     assertHttp(

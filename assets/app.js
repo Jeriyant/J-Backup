@@ -10,8 +10,11 @@ const app = document.querySelector("#app");
         ["sources", "▦", "Sumber"],
         ["history", "↺", "Riwayat"],
         ["schedules", "◷", "Jadwal"],
-        ["storage", "▤", "Penyimpanan"],
+        ["storage", "▤", "Disk"],
+        ["backup", "7Z", "Backup"],
+        ["realtime", "↕", "Realtime"],
         ["settings", "⚙", "Pengaturan"],
+        ["about", "i", "About"],
     ];
     const state = {
         mode: "loading",
@@ -26,6 +29,9 @@ const app = document.querySelector("#app");
         storagePath: "",
         storageQuery: "",
         storageLoading: false,
+        explorerKind: "backup",
+        disks: null,
+        latencyMs: null,
     };
 
     const escapeHtml = (value) => String(value ?? "")
@@ -49,6 +55,14 @@ const app = document.querySelector("#app");
             dateStyle: "medium",
             timeStyle: "short",
         }).format(new Date(value));
+    };
+
+    const duration = (seconds) => {
+        if (seconds === null || seconds === undefined) return "—";
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor((seconds % 86400) / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        return days ? `${days}h ${hours}j` : hours ? `${hours}j ${minutes}m` : `${minutes}m`;
     };
 
     const statusText = (status) => ({
@@ -142,7 +156,9 @@ const app = document.querySelector("#app");
     }
 
     async function loadDashboard(render = true) {
+        const started = performance.now();
         state.dashboard = await api("dashboard");
+        state.latencyMs = Math.max(0, Math.round(performance.now() - started));
         if (render) {
             renderApp();
             if (state.tab === "settings") await revealStoredSshPassword();
@@ -166,14 +182,19 @@ const app = document.querySelector("#app");
     async function loadStorage(path = state.storagePath) {
         state.storagePath = path;
         state.storageLoading = true;
-        if (state.tab === "storage") renderApp();
+        if (["backup", "realtime"].includes(state.tab)) renderApp();
         try {
-            state.storage = await api("storage_list", { query: { path } });
+            state.storage = await api(`${state.explorerKind}_list`, { query: { path } });
             state.storagePath = state.storage.path;
         } finally {
             state.storageLoading = false;
-            if (state.tab === "storage") renderApp();
+            if (["backup", "realtime"].includes(state.tab)) renderApp();
         }
+    }
+
+    async function loadDisks() {
+        state.disks = await api("disk_list");
+        if (state.tab === "storage") renderApp();
     }
 
     async function uploadStorageFile(file) {
@@ -240,7 +261,10 @@ const app = document.querySelector("#app");
         if (state.tab === "history") return renderHistory();
         if (state.tab === "schedules") return renderSchedules();
         if (state.tab === "storage") return renderStorage();
+        if (state.tab === "backup") return renderExplorer("backup");
+        if (state.tab === "realtime") return renderExplorer("realtime");
         if (state.tab === "settings") return renderSettings();
+        if (state.tab === "about") return renderAbout();
         return renderOverview();
     }
 
@@ -262,6 +286,7 @@ const app = document.querySelector("#app");
             ? `${active.source_name} sedang diproses. ${d.queue_count} pekerjaan menunggu.`
             : next ? `${next.type === "sync" ? "Sinkronisasi" : "Backup"} aktif: ${scheduleText(next).toLowerCase()}.`
                 : "Aktifkan jadwal atau jalankan pekerjaan secara manual.";
+        const system = d.system || {};
         return `
             <div class="grid overview-grid">
                 <article class="hero">
@@ -273,6 +298,26 @@ const app = document.querySelector("#app");
                     <article class="metric"><p>Job berhasil</p><strong>${successes}</strong><small>dari ${d.jobs.length} riwayat terakhir</small></article>
                     <article class="metric"><p>Ruang tersedia</p><strong>${bytes(d.disk.free)}</strong><small>${d.disk.used_percent}% disk terpakai</small></article>
                 </div>
+                <article class="panel system-monitor">
+                    <div class="panel-heading"><div><p class="eyebrow">HOST SERVER</p><h2>Informasi sistem</h2></div>
+                        <span class="status status-success">Live</span></div>
+                    <div class="system-metrics">
+                        <div><span>Uptime</span><strong>${duration(system.uptime_seconds)}</strong></div>
+                        <div><span>CPU</span><strong>${system.cpu_percent ?? "—"}%</strong><small>${system.cpu_cores || "—"} core</small></div>
+                        <div><span>Memory</span><strong>${system.memory?.used_percent ?? "—"}%</strong><small>${bytes(system.memory?.used)} / ${bytes(system.memory?.total)}</small></div>
+                        <div><span>Latensi</span><strong>${state.latencyMs ?? "—"} ms</strong><small>Browser → server</small></div>
+                    </div>
+                </article>
+                <article class="panel schedule-monitor">
+                    <div class="panel-heading"><div><p class="eyebrow">OTOMASI</p><h2>Status jadwal</h2></div>
+                        <button class="text-button" data-tab="schedules">Atur jadwal →</button></div>
+                    <div class="schedule-status-list">
+                        ${d.schedules.map((schedule) => `<div>
+                            <span><i class="${schedule.enabled ? "online" : ""}"></i>${schedule.type === "sync" ? "Realtime rsync" : "Backup 7z"}</span>
+                            <strong>${schedule.enabled ? scheduleText(schedule) : "Nonaktif"}</strong>
+                        </div>`).join("")}
+                    </div>
+                </article>
                 <article class="panel disk-panel">
                     <div class="panel-heading"><div><p class="eyebrow">PENYIMPANAN TUJUAN</p><h2>Kapasitas disk</h2></div>
                         <button class="text-button" data-tab="storage">Lihat detail →</button></div>
@@ -370,7 +415,7 @@ const app = document.querySelector("#app");
                     <label class="switch"><input type="checkbox" data-schedule-enabled="${schedule.type}" ${schedule.enabled ? "checked" : ""}><span></span></label></div>
                 <p class="eyebrow">${schedule.type === "sync" ? "RSYNC" : "KOMPRESI 7Z"}</p>
                 <h2>Jadwal ${schedule.type === "sync" ? "sinkronisasi" : "backup"}</h2>
-                <p class="muted">${schedule.type === "sync" ? "Menyalin folder remote ke staging lokal." : "Membuat dan memverifikasi arsip di folder tujuan."}</p>
+                <p class="muted">${schedule.type === "sync" ? "Menyalin folder remote ke data realtime lokal." : "Membuat dan memverifikasi arsip di folder tujuan."}</p>
                 <div class="schedule-controls">
                     <label class="field">Pola jadwal
                         <select data-schedule-mode="${schedule.type}">
@@ -396,7 +441,30 @@ const app = document.querySelector("#app");
     }
 
     function renderStorage() {
-        const disk = state.dashboard.disk;
+        const disks = state.disks?.disks || [];
+        return `<div class="grid disk-list">
+            ${disks.map((disk) => `<article class="panel capacity">
+                <div class="panel-heading"><div><p class="eyebrow">MOUNT HOST</p><h2>${escapeHtml(disk.path)}</h2></div>
+                    <span class="status status-success">Online</span></div>
+                <div class="capacity-number"><strong>${bytes(disk.used)}</strong><span>dari ${bytes(disk.total)}</span></div>
+                <div class="capacity-track"><i style="width:${Math.min(disk.used_percent, 100)}%"></i></div>
+                <div class="capacity-foot"><span>${disk.used_percent}% terpakai</span><strong>${bytes(disk.free)} tersedia</strong></div>
+            </article>`).join("") || `<article class="panel full"><div class="empty"><strong>Disk belum dimuat</strong>Tekan refresh untuk membaca mount yang tersedia.</div></article>`}
+            <div class="disk-actions"><button class="button ghost" data-action="disk-refresh"><span>↻</span>Refresh disk</button></div>
+        </div>`;
+    }
+
+    function renderExplorer(kind) {
+        const disk = kind === "backup"
+            ? state.dashboard.disk
+            : {
+                available: true,
+                path: state.dashboard.settings.staging_dir,
+                total: 0,
+                used: 0,
+                free: 0,
+                used_percent: 0,
+            };
         const listing = state.storage;
         const query = state.storageQuery.toLowerCase();
         const entries = (listing?.entries || []).filter((entry) =>
@@ -404,13 +472,14 @@ const app = document.querySelector("#app");
         );
         const pathParts = state.storagePath ? state.storagePath.split("/") : [];
         const breadcrumbs = [
-            `<button data-storage-path="">Backup</button>`,
+            `<button data-storage-path="">${kind === "backup" ? "Backup" : "Realtime"}</button>`,
             ...pathParts.map((part, index) => {
                 const path = pathParts.slice(0, index + 1).join("/");
                 return `<span>›</span><button data-storage-path="${escapeHtml(path)}">${escapeHtml(part)}</button>`;
             }),
         ].join("");
-        return `<div class="grid storage-layout">
+        return `<div class="grid storage-layout explorer-layout">
+            ${kind === "backup" ? `
             <article class="panel capacity"><div class="panel-heading"><div><p class="eyebrow">DISK TUJUAN</p>
                 <h2>${disk.available ? "Storage terhubung" : "Storage tidak tersedia"}</h2></div>
                 <span class="status ${disk.available ? "status-success" : "status-failed"}">${disk.available ? "Online" : "Periksa"}</span></div>
@@ -418,20 +487,27 @@ const app = document.querySelector("#app");
                 <div class="capacity-number"><strong>${bytes(disk.used)}</strong><span>dari ${bytes(disk.total)}</span></div>
                 <div class="capacity-track"><i style="width:${Math.min(disk.used_percent, 100)}%"></i></div>
                 <div class="capacity-foot"><span>${disk.used_percent}% terpakai</span><strong>${bytes(disk.free)} tersedia</strong></div>
-            </article>
+            </article>` : `
+            <article class="panel explorer-summary"><p class="eyebrow">DATA REALTIME</p>
+                <h2>Hasil sinkronisasi terbaru</h2>
+                <p class="path">${escapeHtml(disk.path)}</p>
+                <p class="muted">Folder ini diperbarui oleh rsync dan menjadi sumber pembuatan backup.</p>
+            </article>`}
+            ${kind === "backup" ? `
             <article class="panel"><p class="eyebrow">VERIFIKASI TUJUAN</p><h2>Syarat backup sukses</h2>
                 <ol class="checks"><li><i>1</i>Folder tanggal berhasil dibuat</li><li><i>2</i>File sementara memiliki ukuran valid</li>
                     <li><i>3</i>Arsip lulus pengujian 7z t</li><li><i>4</i>File final tersedia di folder tujuan</li></ol>
-            </article>
+            </article>` : ""}
             <article class="panel storage-explorer">
                 <div class="panel-heading">
-                    <div><p class="eyebrow">FILE EXPLORER</p><h2>File hasil backup</h2>
-                        <p class="muted">Jelajahi, download, atau upload arsip pada folder tujuan.</p></div>
+                    <div><p class="eyebrow">FILE EXPLORER</p><h2>${kind === "backup" ? "File hasil backup" : "Data realtime"}</h2>
+                        <p class="muted">${kind === "backup" ? "Jelajahi, download, atau upload arsip pada folder tujuan." : "Jelajahi dan download data hasil sinkronisasi terbaru."}</p></div>
                     <div class="toolbar storage-toolbar">
                         <button class="button ghost" data-action="storage-refresh"><span>↻</span>Refresh</button>
+                        ${kind === "backup" ? `
                         <label class="button primary upload-button"><span>⇧</span>Upload .7z
                             <input id="storage-upload" type="file" accept=".7z,application/x-7z-compressed">
-                        </label>
+                        </label>` : ""}
                     </div>
                 </div>
                 <div class="storage-navigation">
@@ -458,7 +534,7 @@ const app = document.querySelector("#app");
                                 <span>${dateTime(entry.modified_at)}</span>
                                 <span class="file-actions">${entry.type === "file" ? `
                                     <a class="row-button download-button"
-                                        href="api.php?action=storage_download&path=${encodeURIComponent(entry.path)}"
+                                        href="api.php?action=${kind}_download&path=${encodeURIComponent(entry.path)}"
                                         download="${escapeHtml(entry.name)}" title="Download ${escapeHtml(entry.name)}"
                                         aria-label="Download ${escapeHtml(entry.name)}">⇩</a>` : `
                                     <button class="row-button" data-storage-path="${escapeHtml(entry.path)}"
@@ -467,7 +543,7 @@ const app = document.querySelector("#app");
                     </div>
                 ` : `
                     <div class="empty"><strong>${query ? "Tidak ada hasil" : "Folder ini kosong"}</strong>
-                        ${query ? "Coba kata pencarian lain." : "Upload file .7z atau buka folder lain."}</div>
+                        ${query ? "Coba kata pencarian lain." : kind === "backup" ? "Upload file .7z atau buka folder lain." : "Belum ada data realtime hasil sinkronisasi."}</div>
                 `}
                 <footer class="storage-foot">
                     <span>${entries.length} item ditampilkan</span>
@@ -480,8 +556,8 @@ const app = document.querySelector("#app");
     function renderSettings() {
         const s = state.dashboard.settings;
         const sshConnected = s.ssh_connected === true;
-        return `<form class="grid settings-grid form" data-form="settings">
-            <section class="panel"><div class="panel-heading"><div><p class="eyebrow">KONEKSI SUMBER</p><h2>SSH & rsync</h2></div></div>
+        return `<div class="grid settings-grid">
+            <form class="panel form" data-form="settings-ssh"><div class="panel-heading"><div><p class="eyebrow">KONEKSI SUMBER</p><h2>SSH & rsync</h2></div></div>
                 <div class="form-grid">
                     <label>Host sumber<input name="remote_host" value="${escapeHtml(s.remote_host)}" placeholder="192.168.1.1"></label>
                     <label>Port SSH<input name="remote_port" type="number" min="1" max="65535" value="${s.remote_port}"></label>
@@ -505,7 +581,8 @@ const app = document.querySelector("#app");
                         <option value="ed25519" ${s.ssh_key_type === "ed25519" ? "selected" : ""}>Ed25519</option>
                     </select></label>
                     <label>Komentar key<input name="ssh_key_comment" maxlength="128" value="${escapeHtml(s.ssh_key_comment)}" placeholder="Jeriyant-Key-RSA"></label>
-                    <label class="span-2">Private key<input name="ssh_key_path" value="${escapeHtml(s.ssh_key_path)}"></label>
+                    <label class="span-2">Private key<input name="ssh_key_path" value="${escapeHtml(s.ssh_key_path)}">
+                        <small>Dikelola pada folder data aplikasi agar dapat dibaca worker dengan aman; bukan di /root.</small></label>
                     <div class="ssh-tools span-2">
                         <button class="button ${sshConnected ? "danger ssh-disconnect" : "ssh-setup"}" type="button"
                             data-action="${sshConnected ? "ssh-disconnect" : "ssh-connect"}">
@@ -516,15 +593,17 @@ const app = document.querySelector("#app");
                             ? `Terhubung ke ${escapeHtml(s.ssh_connected_target || `${s.remote_user}@${s.remote_host}`)}. Disconnect mencabut key remote dan menghapus key lokal.`
                             : "Connect membuat key, memasangnya ke server sumber, lalu menguji login tanpa password."}</small>
                     </div>
+                    <div class="panel-save span-2"><button class="button primary" type="submit"><span>✓</span>Simpan koneksi</button></div>
                 </div>
-            </section>
-            <section class="panel"><div class="panel-heading"><div><p class="eyebrow">DATA SINKRONISASI</p><h2>Staging lokal rsync</h2></div></div>
+            </form>
+            <form class="panel form" data-form="settings-realtime"><div class="panel-heading"><div><p class="eyebrow">DATA REALTIME</p><h2>Tujuan rsync</h2></div></div>
                 <div class="form-grid">
-                    <label class="span-2">Folder tujuan sinkronisasi<input name="staging_dir" value="${escapeHtml(s.staging_dir)}">
-                        <small>Data rsync terbaru disimpan di sini sebelum dibuat menjadi backup.</small></label>
+                    <label class="span-2">Folder data realtime<input name="staging_dir" value="${escapeHtml(s.staging_dir)}">
+                        <small>Data rsync terbaru disimpan di sini dan menjadi sumber backup.</small></label>
+                    <div class="panel-save span-2"><button class="button primary" type="submit"><span>✓</span>Simpan pengaturan realtime</button></div>
                 </div>
-            </section>
-            <section class="panel"><div class="panel-heading"><div><p class="eyebrow">HASIL BACKUP</p><h2>Lokasi & penamaan</h2></div></div>
+            </form>
+            <form class="panel form" data-form="settings-backup"><div class="panel-heading"><div><p class="eyebrow">HASIL BACKUP</p><h2>Lokasi & penamaan</h2></div></div>
                 <div class="form-grid">
                     <label class="span-2">Folder tujuan<input name="backup_dir" value="${escapeHtml(s.backup_dir)}"></label>
                     <label class="span-2">Template nama file<input name="filename_template" value="${escapeHtml(s.filename_template)}">
@@ -532,11 +611,9 @@ const app = document.querySelector("#app");
                     <label>Kompresi 7z<select name="compression_level">${[0,1,3,5,7,9].map((level) => `<option value="${level}" ${Number(s.compression_level) === level ? "selected" : ""}>Level ${level}</option>`).join("")}</select></label>
                     <label>Minimum ruang kosong<input name="minimum_free_bytes" type="number" min="0" value="${s.minimum_free_bytes}"></label>
                     <label>Zona waktu<input name="timezone" value="${escapeHtml(s.timezone)}"></label>
-                    <label>GitHub repository<input name="github_repository" value="${escapeHtml(s.github_repository)}" placeholder="owner/repository"></label>
+                    <div class="panel-save span-2"><button class="button primary" type="submit"><span>✓</span>Simpan pengaturan backup</button></div>
                 </div>
-            </section>
-            <div class="settings-actions"><button class="button ghost" type="button" data-action="check-update"><span>↻</span>Cek pembaruan</button>
-                <button class="button primary action-save" type="submit"><span>✓</span>Simpan semua pengaturan</button></div>
+            </form>
             <section class="panel danger-zone">
                 <div>
                     <p class="eyebrow">ZONA BERBAHAYA</p>
@@ -547,7 +624,29 @@ const app = document.querySelector("#app");
                     <span>↺</span>Reset Database
                 </button>
             </section>
-        </form>`;
+        </div>`;
+    }
+
+    function renderAbout() {
+        const s = state.dashboard.settings;
+        return `<div class="grid about-grid">
+            <article class="panel about-hero">
+                <div class="brand"><span class="brand-mark">J</span><span class="brand-copy"><strong>J-BACKUP</strong><small>Server data safety</small></span></div>
+                <p class="eyebrow">TENTANG APLIKASI</p>
+                <h2>Backup universal berbasis PHP</h2>
+                <p class="muted">Sinkronisasi sumber melalui SSH/rsync, kompresi 7z terjadwal, verifikasi hasil, dan file explorer terintegrasi.</p>
+                <span class="tag">Versi ${escapeHtml(state.dashboard.version)}</span>
+            </article>
+            <form class="panel form" data-form="settings-about">
+                <div class="panel-heading"><div><p class="eyebrow">PEMBARUAN</p><h2>GitHub repository</h2></div></div>
+                <label>Repository<input name="github_repository" value="${escapeHtml(s.github_repository)}" placeholder="owner/repository">
+                    <small>Format owner/repository, misalnya jeriyant/j-backup.</small></label>
+                <div class="about-actions">
+                    <button class="button ghost" type="button" data-action="check-update"><span>↻</span>Cek pembaruan</button>
+                    <button class="button primary" type="submit"><span>✓</span>Simpan repository</button>
+                </div>
+            </form>
+        </div>`;
     }
 
     function sourceDialog(source = null) {
@@ -575,7 +674,7 @@ const app = document.querySelector("#app");
     function manualDialog() {
         showModal(`<p class="eyebrow">EKSEKUSI MANUAL</p><h2>Jalankan pekerjaan sekarang</h2>
             <p class="muted">${state.selected.size ? `${state.selected.size} sumber terpilih akan diproses.` : "Semua sumber aktif akan diproses berurutan."}</p>
-            <div class="choices"><button class="choice" data-run="sync"><i>↕</i><span><strong>Sinkronisasi</strong><small>Tarik folder remote ke staging</small></span></button>
+            <div class="choices"><button class="choice" data-run="sync"><i>↕</i><span><strong>Sinkronisasi</strong><small>Tarik folder remote ke data realtime</small></span></button>
                 <button class="choice" data-run="backup"><i>7Z</i><span><strong>Buat backup</strong><small>Kompres & verifikasi di tujuan</small></span></button></div>`);
     }
 
@@ -635,7 +734,7 @@ const app = document.querySelector("#app");
     }
 
     function currentSshSettings() {
-        const form = document.querySelector('[data-form="settings"]');
+        const form = document.querySelector('[data-form="settings-ssh"]');
         if (!form) throw new Error("Form pengaturan tidak ditemukan.");
         const values = new FormData(form);
         return {
@@ -779,7 +878,13 @@ const app = document.querySelector("#app");
             if (target.dataset.tab) {
                 state.tab = target.dataset.tab;
                 renderApp();
-                if (state.tab === "storage" && !state.storageLoading) {
+                if (state.tab === "storage") {
+                    await loadDisks();
+                } else if (["backup", "realtime"].includes(state.tab) && !state.storageLoading) {
+                    state.explorerKind = state.tab;
+                    state.storage = null;
+                    state.storagePath = "";
+                    state.storageQuery = "";
                     await loadStorage(state.storagePath);
                 } else if (state.tab === "settings") {
                     await revealStoredSshPassword();
@@ -789,6 +894,8 @@ const app = document.querySelector("#app");
                 await loadStorage(target.dataset.storagePath);
             } else if (target.dataset.action === "storage-refresh") {
                 await loadStorage();
+            } else if (target.dataset.action === "disk-refresh") {
+                await loadDisks();
             } else if (target.dataset.action === "toggle-ssh-password") {
                 const password = document.querySelector("#ssh-password");
                 const visible = password?.type === "password";
@@ -975,9 +1082,9 @@ const app = document.querySelector("#app");
                     ? "Sumber berhasil diperbarui."
                     : "Sumber berhasil ditambahkan.");
                 await loadDashboard();
-            } else if (kind === "settings") {
+            } else if (kind.startsWith("settings-")) {
                 await api("settings_update", { method: "POST", body: data });
-                toast("Pengaturan berhasil disimpan.");
+                toast("Pengaturan panel berhasil disimpan.");
                 await loadDashboard();
             } else if (kind === "database-reset") {
                 let result = await api("reset_database", {

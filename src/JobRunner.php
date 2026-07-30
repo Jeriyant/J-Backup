@@ -702,7 +702,7 @@ SH;
             && !mkdir($sourceDirectory, 0770, true)
             && !is_dir($sourceDirectory)
         ) {
-            throw new RuntimeException('Folder staging sumber tidak dapat dibuat.');
+            throw new RuntimeException('Folder realtime sumber tidak dapat dibuat.');
         }
 
         foreach ($paths as $path) {
@@ -797,7 +797,7 @@ SH;
             $alias = Database::validateSourceAlias((string) $path['alias']);
             $source = $sourceDirectory . '/' . $alias;
             if (!is_dir($source)) {
-                throw new RuntimeException("Folder staging tidak ditemukan: {$source}");
+                throw new RuntimeException("Folder realtime tidak ditemukan: {$source}");
             }
             $sources[] = ['alias' => $alias, 'path' => $source];
         }
@@ -1020,8 +1020,8 @@ SH;
                     strtolower($recentOutput),
                     'operation not permitted'
                 )
-                    ? 'Rsync tidak dapat menulis atribut file pada folder staging. '
-                        . 'Gunakan folder yang dapat ditulis worker atau mode staging kompatibel WSL.'
+                    ? 'Rsync tidak dapat menulis atribut file pada folder realtime. '
+                        . 'Gunakan folder yang dapat ditulis worker atau mode realtime kompatibel WSL.'
                     : 'Sebagian file tidak dapat disalin oleh rsync (kode 23). '
                         . 'Periksa detail izin atau file yang gagal pada log.';
                 throw new RuntimeException($message);

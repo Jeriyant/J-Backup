@@ -172,8 +172,9 @@ Saat pertama dibuka:
    lokasi private key otomatis disimpan.
 5. Tombol Connect akan berubah menjadi **Disconnect**.
 6. Gunakan **Tes koneksi** untuk menguji kembali autentikasi private key.
-7. Atur folder staging lokal pada panel **Staging lokal rsync**, kemudian atur
-   tujuan backup pada panel **Lokasi & penamaan**.
+7. Atur **Folder data realtime** pada panel **Data Realtime**, lalu simpan
+   panel tersebut. Atur tujuan backup pada panel **Lokasi & penamaan** dan
+   simpan panel backup secara terpisah.
 8. Tambahkan satu atau beberapa **Sumber Backup** dari menu **Sumber**.
 9. Atur jadwal sinkronisasi dan backup.
 
@@ -199,7 +200,7 @@ uploads=/srv/data/uploads
 
 Format `alias=/path/folder` bersifat opsional. Tanpa alias, nama folder terakhir
 dipakai otomatis. Alias harus unik dalam satu sumber dan digunakan sebagai nama
-folder staging serta nama arsip pada mode terpisah.
+folder realtime serta nama arsip pada mode terpisah.
 
 Mode **Gabungkan** membuat satu arsip 7z yang berisi seluruh path dalam sumber.
 Mode **Terpisah** membuat satu arsip 7z untuk setiap path. Setiap arsip diuji
@@ -222,10 +223,18 @@ Instalasi lama dimigrasikan otomatis: nama database lama menjadi satu Sumber
 Backup, sementara folder utama dan pasangan `_sys` lama diubah menjadi daftar
 path eksplisit. Arsip hasil backup yang sudah ada tetap dipertahankan.
 
-Menu **Dashboard** menampilkan status worker, kapasitas tujuan backup, aktivitas
-terbaru, dan status koneksi SSH. Status **Terhubung** hanya tampil jika target
+Menu **Dashboard** menampilkan status worker, jadwal, uptime, CPU, memory,
+latensi browser ke server, kapasitas tujuan backup, aktivitas terbaru, dan
+status koneksi SSH. Menu **Disk** menampilkan mount yang tersedia pada host.
+Menu **Backup** menyediakan explorer dan upload/download arsip, sedangkan menu
+**Realtime** menyediakan explorer hasil rsync. Menu **About** berisi versi dan
+pengecekan pembaruan GitHub. Status **Terhubung** hanya tampil jika target
 host/user yang tersimpan cocok dengan koneksi terakhir dan private key lokal
 masih tersedia.
+
+Private key tidak diletakkan di `/root`. Worker berjalan sebagai akun sistem
+terbatas `jbackup`, sehingga key disimpan di `<lokasi-data>/.ssh` agar dapat
+dipakai tanpa memberikan hak akses root kepada aplikasi.
 
 Password SSH disimpan terenkripsi memakai Sodium SecretBox. Key enkripsi
 berada di:

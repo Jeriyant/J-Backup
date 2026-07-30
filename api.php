@@ -19,7 +19,7 @@ $auth = $container['auth'];
 /** @var \JBackup\SecretStore $secretStore */
 $secretStore = $container['secret_store'];
 
-const JBACKUP_VERSION = '0.2.0';
+const JBACKUP_VERSION = '0.3.0';
 
 function input(): array
 {
@@ -204,14 +204,21 @@ function diskInfo(string $path): array
     ];
 }
 
-function storageRoot(array $settings): string
+function explorerRoot(array $settings, string $kind): string
 {
-    $configured = rtrim((string) ($settings['backup_dir'] ?? ''), '/');
+    $setting = $kind === 'realtime' ? 'staging_dir' : 'backup_dir';
+    $label = $kind === 'realtime' ? 'realtime' : 'backup';
+    $configured = rtrim((string) ($settings[$setting] ?? ''), '/');
     $root = realpath($configured);
     if ($root === false || !is_dir($root)) {
-        throw new HttpException('Folder tujuan backup belum tersedia.', 404);
+        throw new HttpException("Folder {$label} belum tersedia.", 404);
     }
     return rtrim($root, DIRECTORY_SEPARATOR);
+}
+
+function storageRoot(array $settings): string
+{
+    return explorerRoot($settings, 'backup');
 }
 
 function storageRelativePath(string $path): string
@@ -295,6 +302,93 @@ function storageListing(string $root, string $relative): array
         'root' => $root,
         'entries' => $entries,
     ];
+}
+
+function systemMetrics(): array
+{
+    $uptime = null;
+    $uptimeRaw = @file_get_contents('/proc/uptime');
+    if (is_string($uptimeRaw)) {
+        $uptime = max(0, (int) floor((float) explode(' ', trim($uptimeRaw))[0]));
+    }
+
+    $cores = 1;
+    $cpuInfo = @file_get_contents('/proc/cpuinfo');
+    if (is_string($cpuInfo)) {
+        $cores = max(1, preg_match_all('/^processor\s*:/m', $cpuInfo));
+    }
+    $load = function_exists('sys_getloadavg') ? sys_getloadavg() : false;
+    $cpuPercent = is_array($load)
+        ? round(min(100, max(0, ((float) $load[0] / $cores) * 100)), 1)
+        : null;
+
+    $memory = ['total' => 0, 'used' => 0, 'available' => 0, 'used_percent' => 0];
+    $memoryRaw = @file_get_contents('/proc/meminfo');
+    if (is_string($memoryRaw)) {
+        preg_match('/^MemTotal:\s+(\d+)\s+kB/im', $memoryRaw, $totalMatch);
+        preg_match('/^MemAvailable:\s+(\d+)\s+kB/im', $memoryRaw, $availableMatch);
+        $total = (int) ($totalMatch[1] ?? 0) * 1024;
+        $available = (int) ($availableMatch[1] ?? 0) * 1024;
+        $used = max(0, $total - $available);
+        $memory = [
+            'total' => $total,
+            'used' => $used,
+            'available' => $available,
+            'used_percent' => $total > 0
+                ? round(($used / $total) * 100, 1)
+                : 0,
+        ];
+    }
+
+    return [
+        'uptime_seconds' => $uptime,
+        'cpu_percent' => $cpuPercent,
+        'cpu_cores' => $cores,
+        'memory' => $memory,
+        'server_time' => date(DATE_ATOM),
+    ];
+}
+
+function mountedDisks(array $settings): array
+{
+    $candidates = ['/'];
+    $mounts = @file('/proc/self/mounts', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if (is_array($mounts)) {
+        $ignored = [
+            'proc', 'sysfs', 'tmpfs', 'devtmpfs', 'devpts', 'cgroup',
+            'cgroup2', 'pstore', 'securityfs', 'debugfs', 'tracefs',
+            'mqueue', 'hugetlbfs', 'fusectl', 'configfs', 'overlay',
+            'binfmt_misc',
+        ];
+        foreach ($mounts as $line) {
+            $parts = preg_split('/\s+/', trim($line));
+            if (count($parts) < 3 || in_array($parts[2], $ignored, true)) {
+                continue;
+            }
+            $candidates[] = str_replace(
+                ['\\040', '\\011', '\\134'],
+                [' ', "\t", '\\'],
+                $parts[1]
+            );
+        }
+    }
+
+    $disks = [];
+    foreach (array_values(array_unique($candidates)) as $path) {
+        if ($path === '' || !is_dir($path)) {
+            continue;
+        }
+        $info = diskInfo($path);
+        if (!$info['available'] || $info['total'] <= 0) {
+            continue;
+        }
+        $key = $info['total'] . ':' . $info['free'];
+        if (isset($disks[$key])) {
+            continue;
+        }
+        $disks[$key] = $info;
+    }
+    return array_values($disks);
 }
 
 try {
@@ -455,10 +549,45 @@ try {
             'schedules' => $database->schedules(),
             'jobs' => $database->jobs(150),
             'disk' => diskInfo($settings['backup_dir']),
+            'system' => systemMetrics(),
             'active_job' => $database->activeJob(),
             'queue_count' => $queueCount,
             'worker_heartbeat' => $database->schedulerState('worker_heartbeat'),
         ]);
+    }
+
+    if ($action === 'disk_list') {
+        requireMethod('GET');
+        respond(['disks' => mountedDisks($database->settings())]);
+    }
+
+    if ($action === 'backup_list' || $action === 'realtime_list') {
+        requireMethod('GET');
+        $kind = str_starts_with($action, 'realtime') ? 'realtime' : 'backup';
+        respond(storageListing(
+            explorerRoot($database->settings(), $kind),
+            (string) ($_GET['path'] ?? '')
+        ));
+    }
+
+    if ($action === 'backup_download' || $action === 'realtime_download') {
+        requireMethod('GET');
+        $kind = str_starts_with($action, 'realtime') ? 'realtime' : 'backup';
+        $file = storagePath(
+            explorerRoot($database->settings(), $kind),
+            (string) ($_GET['path'] ?? '')
+        );
+        header_remove('Content-Type');
+        header('Content-Type: application/octet-stream');
+        header(
+            'Content-Disposition: attachment; filename="'
+            . addcslashes(basename($file), "\\\"")
+            . '"'
+        );
+        header('Content-Length: ' . filesize($file));
+        header('Cache-Control: private, no-store');
+        readfile($file);
+        exit;
     }
 
     if ($action === 'storage_list') {
