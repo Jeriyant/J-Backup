@@ -397,6 +397,37 @@ try {
         'Password SSH tersimpan tidak dihapus setelah disconnect.'
     );
 
+    $cancelQueuedJobs = [
+        ...$database->enqueueJobs('backup', [$created['id']]),
+        ...$database->enqueueJobs('backup', [$created['id']]),
+    ];
+    $cancelRunningJob = $database->nextQueuedJob();
+    assertTrue(
+        $cancelRunningJob !== null && $cancelRunningJob['status'] === 'running',
+        'Pekerjaan uji pembatalan tidak masuk status berjalan.'
+    );
+    $cancelResult = $database->cancelAllJobs();
+    assertTrue(
+        $cancelResult === [
+            'queued_cancelled' => 1,
+            'running_requested' => 1,
+            'total' => 2,
+        ],
+        'Ringkasan pembatalan semua pekerjaan tidak benar.'
+    );
+    assertTrue(
+        $database->job($cancelRunningJob['id'])['status'] === 'cancel_requested',
+        'Pekerjaan berjalan tidak menerima permintaan pembatalan.'
+    );
+    $queuedCancellation = array_values(array_filter(
+        $cancelQueuedJobs,
+        static fn (array $item): bool => $item['id'] !== $cancelRunningJob['id']
+    ))[0];
+    assertTrue(
+        $database->job($queuedCancellation['id'])['status'] === 'cancelled',
+        'Pekerjaan antrean tidak langsung dibatalkan.'
+    );
+
     $database->createUser(
         'reset_admin',
         password_hash('rahasia-reset', PASSWORD_DEFAULT)

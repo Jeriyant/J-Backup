@@ -571,8 +571,18 @@ const app = document.querySelector("#app");
     }
 
     function renderHistory() {
+        const cancellableJobs = state.dashboard.jobs.filter(
+            (job) => ["queued", "running"].includes(job.status)
+        );
         return `<article class="panel full"><div class="panel-heading"><div><p class="eyebrow">AUDIT PEKERJAAN</p>
-            <h2>Riwayat sinkronisasi & backup</h2></div><span class="tag">${state.dashboard.jobs.length} pekerjaan</span></div>
+            <h2>Riwayat sinkronisasi & backup</h2></div>
+            <div class="toolbar">
+                <span class="tag">${state.dashboard.jobs.length} pekerjaan</span>
+                ${cancellableJobs.length ? `
+                    <button class="button danger" data-action="cancel-all-jobs">
+                        <span>■</span>Batalkan semua (${cancellableJobs.length})
+                    </button>` : ""}
+            </div></div>
             ${jobTable(state.dashboard.jobs)}</article>`;
     }
 
@@ -1072,6 +1082,28 @@ const app = document.querySelector("#app");
             ${["queued","running"].includes(job.status) ? `<button class="button danger wide" data-cancel-job="${escapeHtml(job.id)}"><span>■</span>Batalkan pekerjaan</button>` : ""}`, true);
     }
 
+    function cancelAllJobsDialog() {
+        const queued = state.dashboard.jobs.filter(
+            (job) => job.status === "queued"
+        ).length;
+        const running = state.dashboard.jobs.filter(
+            (job) => job.status === "running"
+        ).length;
+        showModal(`
+            <p class="eyebrow">PEMBATALAN MASSAL</p>
+            <h2>Batalkan semua pekerjaan?</h2>
+            <p class="muted">Semua pekerjaan dalam antrean akan langsung dibatalkan.
+                Pekerjaan yang sedang berjalan akan dihentikan dengan aman oleh worker.</p>
+            <div class="reset-warning">
+                <strong>${queued} antrean · ${running} sedang berjalan</strong>
+                <span>Riwayat pekerjaan yang sudah selesai tidak akan dihapus.</span>
+            </div>
+            <button class="button danger wide" data-action="confirm-cancel-all-jobs">
+                <span>■</span>Ya, batalkan semua pekerjaan
+            </button>
+        `);
+    }
+
     async function startJobs(type) {
         const result = await api("jobs_create", {
             method: "POST",
@@ -1413,6 +1445,18 @@ const app = document.querySelector("#app");
                 await api("job_cancel", { method: "POST", body: { id: target.dataset.cancelJob } });
                 closeModal();
                 toast("Permintaan pembatalan dikirim.");
+                await loadDashboard();
+            } else if (target.dataset.action === "cancel-all-jobs") {
+                cancelAllJobsDialog();
+            } else if (target.dataset.action === "confirm-cancel-all-jobs") {
+                const result = await api("jobs_cancel_all", {
+                    method: "POST",
+                    body: {},
+                });
+                closeModal();
+                toast(result.total
+                    ? `${result.total} pekerjaan dibatalkan atau sedang dihentikan.`
+                    : "Tidak ada pekerjaan aktif atau antrean.");
                 await loadDashboard();
             } else if (target.dataset.scheduleDay) {
                 const schedule = state.dashboard.schedules.find((item) => item.type === target.dataset.scheduleDay);

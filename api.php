@@ -1001,6 +1001,14 @@ try {
         respond(['ok' => true]);
     }
 
+    if ($action === 'jobs_cancel_all') {
+        requireMethod('POST');
+        respond([
+            'ok' => true,
+            ...$database->cancelAllJobs(),
+        ]);
+    }
+
     if ($action === 'update_check') {
         requireMethod('GET');
         require_once __DIR__ . '/src/UpdateChecker.php';

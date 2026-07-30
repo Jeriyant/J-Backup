@@ -1211,6 +1211,39 @@ final class Database
         return true;
     }
 
+    public function cancelAllJobs(): array
+    {
+        $this->pdo->exec('BEGIN IMMEDIATE');
+        try {
+            $now = self::now();
+            $queued = $this->pdo->prepare(
+                "UPDATE jobs
+                 SET status = 'cancelled', finished_at = ?, error = ?
+                 WHERE status = 'queued'"
+            );
+            $queued->execute([$now, 'Dibatalkan oleh pengguna.']);
+            $queuedCount = $queued->rowCount();
+
+            $running = $this->pdo->prepare(
+                "UPDATE jobs
+                 SET status = 'cancel_requested', error = ?
+                 WHERE status = 'running'"
+            );
+            $running->execute(['Dibatalkan oleh pengguna.']);
+            $runningCount = $running->rowCount();
+            $this->pdo->commit();
+
+            return [
+                'queued_cancelled' => $queuedCount,
+                'running_requested' => $runningCount,
+                'total' => $queuedCount + $runningCount,
+            ];
+        } catch (\Throwable $error) {
+            $this->pdo->rollBack();
+            throw $error;
+        }
+    }
+
     public function schedulerState(string $key): ?string
     {
         $statement = $this->pdo->prepare(
