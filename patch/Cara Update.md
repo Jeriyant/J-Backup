@@ -1,6 +1,6 @@
 # Patch tampilan J-BACKUP
 
-Patch ini dibuat dari commit `697326e` dan hanya mengganti dua aset antarmuka:
+Patch ini hanya mengganti dua aset antarmuka:
 
 - `assets/app.js`
 - `assets/app.css`
@@ -8,6 +8,7 @@ Patch ini dibuat dari commit `697326e` dan hanya mengganti dua aset antarmuka:
 ## Perubahan
 
 - Ikon sumber otomatis memakai inisial nama sumber.
+- Inisial sumber tampil sebagai mini-logo hitam/putih yang mengikuti tema aplikasi.
 - Disk tujuan Realtime ditampilkan pada menu Penyimpanan.
 - Mount sistem WSL seperti `/usr/lib/wsl/drivers` ditempatkan paling bawah.
 - Teks informasi koneksi SSH dibuat lebih kecil.
@@ -47,5 +48,5 @@ sudo systemctl reload apache2
 
 ```text
 assets/app.js   565DE4E9FFBD129FE683755473C03D1F56AD1007E9788B3A8476475269CB3ACF
-assets/app.css  EB91CB6537D4F9D89015AB3916F048CD8A74E39C96EB9023CE2D14B7691C93AF
+assets/app.css  D330A0A746AD3C33174B50797FBF8700CD826CC056D39B888B5891F950B93830
 ```

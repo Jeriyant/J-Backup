@@ -602,14 +602,27 @@ td small { overflow: hidden; max-width: 320px; margin-top: 4px; color: var(--mut
 .search input { border: 0; background: transparent; }
 .database-row {
     display: grid;
-    grid-template-columns: 22px 40px minmax(210px,1fr) auto auto 34px 34px;
+    grid-template-columns: 22px 44px minmax(210px,1fr) auto auto 34px 34px;
     align-items: center;
     gap: 13px;
     border-bottom: 1px solid var(--line);
     padding: 14px 8px;
 }
 .database-row.off { opacity: .55; }
-.database-icon, .schedule-icon {
+.database-icon {
+    display: grid;
+    width: 44px;
+    height: 44px;
+    place-items: center;
+    border-radius: 13px 4px 13px 4px;
+    background: var(--ink);
+    color: var(--surface);
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 950;
+    letter-spacing: .02em;
+}
+.schedule-icon {
     display: grid;
     width: 40px;
     height: 40px;
