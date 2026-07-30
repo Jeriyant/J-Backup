@@ -802,6 +802,26 @@ try {
         respond(['ok' => true]);
     }
 
+    if ($action === 'sources_delete') {
+        requireMethod('POST');
+        $payload = input();
+        $ids = (array) ($payload['ids'] ?? []);
+        if ($ids === [] || count($ids) > 5000) {
+            throw new HttpException(
+                'Pilih 1 sampai 5000 sumber untuk dihapus.',
+                422
+            );
+        }
+        $deleted = $database->deleteSources($ids);
+        if ($deleted === 0) {
+            throw new HttpException('Sumber terpilih tidak ditemukan.', 404);
+        }
+        respond([
+            'ok' => true,
+            'deleted_count' => $deleted,
+        ]);
+    }
+
     if ($action === 'settings_update') {
         requireMethod('POST');
         $payload = input();

@@ -452,6 +452,8 @@ h1, h2, h3,
 .panel-heading h2, .panel h2, .modal h2 { margin: 0; font-size: 20px; letter-spacing: -.035em; }
 .panel-heading .muted { margin: 5px 0 0; }
 .text-button { border: 0; background: none; color: var(--blue); cursor: pointer; font-size: 10px; font-weight: 850; }
+.source-bulk-delete { min-height:32px; padding:0 11px; font-size:9px; }
+.source-bulk-delete > span { min-width:18px; height:18px; }
 .disk-panel { grid-column: 1; }
 .ssh-status-panel { grid-column: 2; }
 .recent-panel { grid-column: 1 / -1; }

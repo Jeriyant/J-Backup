@@ -838,6 +838,34 @@ final class Database
         return $this->deleteDatabase($id);
     }
 
+    public function deleteSources(array $ids): int
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $ids),
+            static fn (int $id): bool => $id > 0
+        )));
+        if ($ids === []) {
+            return 0;
+        }
+
+        $statement = $this->pdo->prepare(
+            'DELETE FROM database_entries WHERE id = ?'
+        );
+        $deleted = 0;
+        $this->pdo->beginTransaction();
+        try {
+            foreach ($ids as $id) {
+                $statement->execute([$id]);
+                $deleted += $statement->rowCount();
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $error) {
+            $this->pdo->rollBack();
+            throw $error;
+        }
+        return $deleted;
+    }
+
     private function validateArchiveMode(string $mode): string
     {
         if (!in_array($mode, ['combined', 'separate'], true)) {

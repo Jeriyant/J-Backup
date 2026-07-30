@@ -594,6 +594,25 @@ try {
             && count($xlsxImportBody['sources'][0]['paths']) === 2,
         'Import sumber dari workbook Excel XLSX gagal.'
     );
+    $bulkIds = array_merge(
+        array_column($sourceImportBody['sources'], 'id'),
+        [$xlsxImportBody['sources'][0]['id']]
+    );
+    $bulkDelete = $request('sources_delete', 'POST', [
+        'ids' => $bulkIds,
+    ]);
+    assertHttp(
+        $bulkDelete['status'] === 200
+            && $bulkDelete['body']['deleted_count'] === 3,
+        'Penghapusan massal sumber gagal.'
+    );
+    $dashboardAfterBulkDelete = $request('dashboard');
+    assertHttp(
+        count($dashboardAfterBulkDelete['body']['sources']) === 1
+            && $dashboardAfterBulkDelete['body']['sources'][0]['id']
+                === $source['body']['source']['id'],
+        'Penghapusan massal ikut menghapus sumber yang tidak dipilih.'
+    );
 
     $managedKey = $root . '/data/.ssh/id_ed25519';
     if (!is_dir(dirname($managedKey))) {

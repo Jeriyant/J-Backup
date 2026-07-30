@@ -511,6 +511,10 @@ const app = document.querySelector("#app");
                     <label class="search"><input id="source-search" value="${escapeHtml(state.query)}" placeholder="Cari sumber…" aria-label="Cari sumber"></label>
                     <span>${state.selected.size} dipilih</span>
                     <button class="text-button" data-action="select-all">${state.selected.size === filtered.length && filtered.length ? "Batalkan pilihan" : "Pilih semua"}</button>
+                    <button class="button danger source-bulk-delete" data-action="delete-selected"
+                        ${state.selected.size ? "" : "disabled"}>
+                        <span>×</span>Hapus dipilih
+                    </button>
                 </div>
                 <div>
                     ${filtered.map((item) => `
@@ -1317,6 +1321,21 @@ const app = document.querySelector("#app");
                     ? new Set()
                     : new Set(filtered.map((item) => item.id));
                 renderApp();
+            } else if (target.dataset.action === "delete-selected") {
+                const ids = [...state.selected];
+                if (!ids.length) return;
+                if (confirm(
+                    `Hapus ${ids.length} sumber terpilih dari daftar?\n\n`
+                    + "Riwayat pekerjaan dan file hasil backup tidak ikut dihapus."
+                )) {
+                    const result = await api("sources_delete", {
+                        method: "POST",
+                        body: { ids },
+                    });
+                    state.selected.clear();
+                    toast(`${result.deleted_count} sumber dihapus.`);
+                    await loadDashboard();
+                }
             } else if (target.dataset.run) await startJobs(target.dataset.run);
             else if (target.dataset.editId) {
                 const source = state.dashboard.sources.find(
