@@ -1354,12 +1354,18 @@ SH;
         DateTimeImmutable $date
     ): string {
         $databaseName = $this->safeArchiveToken($databaseName);
+        $indonesianMonths = [
+            1 => 'JAN', 2 => 'FEB', 3 => 'MAR', 4 => 'APR',
+            5 => 'MEI', 6 => 'JUN', 7 => 'JUL', 8 => 'AGU',
+            9 => 'SEP', 10 => 'OKT', 11 => 'NOV', 12 => 'DES',
+        ];
+        $month = $indonesianMonths[(int) $date->format('n')];
         $rendered = strtr($template ?: '{date}_{time}-{name}.7z', [
             '{name}' => $databaseName,
-            '{date}' => $date->format('Y-m-d'),
+            '{date}' => $date->format('Y-') . $month . $date->format('-d'),
             '{time}' => $date->format('H-i-s'),
             '{year}' => $date->format('Y'),
-            '{month}' => $date->format('m'),
+            '{month}' => $month,
             '{day}' => $date->format('d'),
         ]);
         if ($rendered !== basename($rendered) || in_array($rendered, ['.', '..'], true)) {

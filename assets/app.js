@@ -674,15 +674,16 @@ const app = document.querySelector("#app");
 
     function renderSchedules() {
         return `<div class="grid cards-2">${state.dashboard.schedules.map((schedule) => `
-            <article class="panel schedule-card schedule-${schedule.type}">
+            <form class="panel schedule-card schedule-${schedule.type} ${schedule.enabled ? "is-enabled" : "is-disabled"}"
+                data-form="schedule-${schedule.type}">
                 <div class="schedule-top"><div class="schedule-icon">${schedule.type === "sync" ? "↕" : "7Z"}</div>
                     <label class="switch"><input type="checkbox" data-schedule-enabled="${schedule.type}" ${schedule.enabled ? "checked" : ""}><span></span></label></div>
                 <p class="eyebrow">${schedule.type === "sync" ? "RSYNC" : "KOMPRESI 7Z"}</p>
                 <h2>Jadwal ${schedule.type === "sync" ? "sinkronisasi" : "backup"}</h2>
                 <p class="muted">${schedule.type === "sync" ? "Menyalin folder remote ke data realtime lokal." : "Membuat dan memverifikasi arsip di folder tujuan."}</p>
-                <div class="schedule-controls">
+                ${schedule.enabled ? `<div class="schedule-controls">
                     <label class="field">Pola jadwal
-                        <select data-schedule-mode="${schedule.type}">
+                        <select name="mode" data-schedule-mode="${schedule.type}">
                             <option value="minutes" ${schedule.mode === "minutes" ? "selected" : ""}>Setiap Menit</option>
                             <option value="hours" ${schedule.mode === "hours" ? "selected" : ""}>Setiap Jam</option>
                             <option value="daily" ${schedule.mode === "daily" ? "selected" : ""}>Setiap Hari</option>
@@ -692,16 +693,20 @@ const app = document.querySelector("#app");
                         <label class="field">Jalankan setiap
                             <span class="interval-input">
                                 <input type="number" min="1" max="${schedule.mode === "minutes" ? 1440 : 168}"
-                                    data-schedule-interval="${schedule.type}" value="${schedule.interval_value}">
+                                    name="interval_value" value="${schedule.interval_value}" required>
                                 <b>${schedule.mode === "minutes" ? "menit" : "jam"}</b>
                             </span>
                         </label>` : `
                         <label class="field">Waktu mulai
-                            <input class="time-input" type="time" data-schedule-time="${schedule.type}" value="${schedule.time}">
+                            <input class="time-input" type="time" name="time" value="${schedule.time}" step="60" required>
                         </label>`}
+                    <button class="button primary schedule-save" type="submit">
+                        <span>✓</span>Simpan jadwal ${schedule.type === "sync" ? "RSYNC" : "backup"}
+                    </button>
                 </div>
-                <div class="schedule-foot">${schedule.enabled ? `Aktif · ${scheduleText(schedule)}` : `Nonaktif · ${scheduleText(schedule)}`}</div>
-            </article>`).join("")}</div>`;
+                <div class="schedule-foot">Aktif · ${scheduleText(schedule)}</div>`
+                : `<div class="schedule-foot">Jadwal nonaktif</div>`}
+            </form>`).join("")}</div>`;
     }
 
     function renderStorage() {
@@ -930,7 +935,7 @@ const app = document.querySelector("#app");
                 <div class="form-grid">
                     <label class="span-2">Folder tujuan<input name="backup_dir" value="${escapeHtml(s.backup_dir)}"></label>
                     <label class="span-2">Template nama file<input name="filename_template" value="${escapeHtml(s.filename_template)}">
-                        <small>Gunakan {date}, {time}, dan {name}.</small></label>
+                        <small>Gunakan {date}, {time}, dan {name}. {date} memakai singkatan bulan Indonesia, misalnya 2026-JUL-31.</small></label>
                     <label>Kompresi 7z<select name="compression_level">${[0,1,3,5,7,9].map((level) => `<option value="${level}" ${Number(s.compression_level) === level ? "selected" : ""}>Level ${level}</option>`).join("")}</select></label>
                     <label>Minimum ruang kosong<input name="minimum_free_bytes" type="number" min="0" value="${s.minimum_free_bytes}"></label>
                     <label>Zona waktu<input name="timezone" value="${escapeHtml(s.timezone)}"></label>
@@ -1088,7 +1093,7 @@ const app = document.querySelector("#app");
                             <th>aktif</th>
                         </tr></thead>
                         <tbody><tr>
-                            <td>JERIYANT</td>
+                            <td>1</td>
                             <td>JERIYANT</td>
                             <td>gabung</td>
                             <td>jeriyant</td>
@@ -1644,13 +1649,13 @@ const app = document.querySelector("#app");
             } else if (target.dataset.scheduleEnabled) {
                 await updateSchedule(target.dataset.scheduleEnabled, { enabled: target.checked });
             } else if (target.dataset.scheduleMode) {
-                await updateSchedule(target.dataset.scheduleMode, { mode: target.value });
-            } else if (target.dataset.scheduleInterval) {
-                await updateSchedule(target.dataset.scheduleInterval, {
-                    interval_value: Number(target.value),
-                });
-            } else if (target.dataset.scheduleTime) {
-                await updateSchedule(target.dataset.scheduleTime, { time: target.value });
+                const schedule = state.dashboard.schedules.find(
+                    (item) => item.type === target.dataset.scheduleMode
+                );
+                if (schedule) {
+                    schedule.mode = target.value;
+                    renderApp();
+                }
             } else if (target.name === "ssh_key_type") {
                 const keyPath = document.querySelector('[name="ssh_key_path"]');
                 if (keyPath) {
@@ -1728,6 +1733,14 @@ const app = document.querySelector("#app");
                     ? "Sumber berhasil diperbarui."
                     : "Sumber berhasil ditambahkan.");
                 await loadDashboard();
+            } else if (kind === "schedule-sync" || kind === "schedule-backup") {
+                const type = kind === "schedule-sync" ? "sync" : "backup";
+                const patch = {
+                    mode: data.mode,
+                    interval_value: Number(data.interval_value || 1),
+                };
+                if (data.time) patch.time = data.time;
+                await updateSchedule(type, patch);
             } else if (kind.startsWith("settings-")) {
                 await api("settings_update", { method: "POST", body: data });
                 toast("Pengaturan panel berhasil disimpan.");
@@ -1768,7 +1781,7 @@ const app = document.querySelector("#app");
                     if (document.visibilityState === "visible" && state.mode === "ready") {
                         loadDashboard(false, true).then(() => {
                             const editing = document.querySelector("input:focus, textarea:focus, select:focus");
-                            if (!modal.open && !editing && state.tab !== "settings") renderApp();
+                            if (!modal.open && !editing && !["settings", "schedules"].includes(state.tab)) renderApp();
                         }).catch(() => {});
                     }
                 }, 5000);

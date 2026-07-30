@@ -213,6 +213,16 @@ try {
     ]);
 
     $runner = new JobRunner($database, $root, true, $secretStore);
+    $archiveNameMethod = new ReflectionMethod($runner, 'archiveName');
+    assertTrue(
+        $archiveNameMethod->invoke(
+            $runner,
+            '{date}_{month}_{time}-{name}.7z',
+            'Sumber Uji',
+            new DateTimeImmutable('2026-08-17 09:08:07')
+        ) === '2026-AGU-17_AGU_09-08-07-Sumber-Uji.7z',
+        'Nama arsip tidak memakai singkatan bulan Indonesia.'
+    );
     $blockedWithoutPathCheck = false;
     try {
         $database->enqueueJobs('backup', [$created['id']]);
