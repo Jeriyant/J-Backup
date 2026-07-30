@@ -37,7 +37,9 @@ final class JobRunner
             );
             $this->recoverInterruptedJobs();
             $this->recoverInterruptedSshTasks();
+            $this->recoverInterruptedPathTasks();
             $this->runSshTasks();
+            $this->runPathTasks();
             $this->enqueueDueSchedules();
             $processed = 0;
             while ($job = $this->database->nextQueuedJob()) {
@@ -76,6 +78,19 @@ final class JobRunner
         $statement->execute([
             Database::now(),
             'Worker berhenti sebelum tindakan SSH selesai.',
+        ]);
+    }
+
+    private function recoverInterruptedPathTasks(): void
+    {
+        $statement = $this->database->pdo()->prepare(
+            "UPDATE path_tasks
+             SET status = 'failed', finished_at = ?, error = ?
+             WHERE status = 'running'"
+        );
+        $statement->execute([
+            Database::now(),
+            'Worker berhenti sebelum pengujian folder selesai.',
         ]);
     }
 
@@ -126,6 +141,168 @@ final class JobRunner
                 $this->activeSshTaskId = null;
             }
         }
+    }
+
+    private function runPathTasks(): void
+    {
+        while ($task = $this->database->nextQueuedPathTask()) {
+            try {
+                $result = $this->probePath(
+                    (string) $task['kind'],
+                    (string) $task['path']
+                );
+                $result['checked_at'] = Database::now();
+                $this->database->setSchedulerState(
+                    'path_check_' . $task['kind'],
+                    json_encode($result, JSON_THROW_ON_ERROR)
+                );
+                $this->database->updatePathTask($task['id'], [
+                    'status' => 'success',
+                    'result' => $result,
+                    'error' => null,
+                    'finished_at' => Database::now(),
+                ]);
+            } catch (\Throwable $error) {
+                $this->database->updatePathTask($task['id'], [
+                    'status' => 'failed',
+                    'error' => $error->getMessage(),
+                    'finished_at' => Database::now(),
+                ]);
+            }
+        }
+    }
+
+    private function probePath(string $kind, string $path): array
+    {
+        if (!in_array($kind, ['realtime', 'backup'], true)) {
+            throw new RuntimeException('Jenis folder tidak dikenal.');
+        }
+        $path = $this->absolutePath($path);
+        $worker = $this->workerUser();
+        $checks = [
+            'exists' => false,
+            'directory' => false,
+            'readable' => false,
+            'writable' => false,
+            'test_file' => false,
+            'disk' => false,
+        ];
+        $result = [
+            'ready' => false,
+            'kind' => $kind,
+            'path' => $path,
+            'worker_user' => $worker,
+            'checks' => &$checks,
+            'total_bytes' => 0,
+            'free_bytes' => 0,
+            'reason_code' => 'not_found',
+            'message' => 'Folder belum tersedia.',
+            'detail' => null,
+            'commands' => $this->pathAdministratorCommands($path, $worker),
+        ];
+
+        if (!file_exists($path)) {
+            $result['detail'] = 'Folder harus dibuat oleh administrator server.';
+            return $result;
+        }
+        $checks['exists'] = true;
+        if (!is_dir($path)) {
+            $result['reason_code'] = 'not_directory';
+            $result['message'] = 'Path tersedia tetapi bukan sebuah folder.';
+            $result['detail'] = 'Pilih direktori lain atau pindahkan file pada path ini.';
+            return $result;
+        }
+        $checks['directory'] = true;
+        $checks['readable'] = is_readable($path);
+        $checks['writable'] = is_writable($path);
+
+        if (!$checks['readable']) {
+            $result['reason_code'] = 'not_readable';
+            $result['message'] = "Folder tidak dapat dibaca oleh {$worker}.";
+            $result['detail'] = 'Periksa izin folder dan seluruh direktori induknya.';
+            return $result;
+        }
+        if (!$checks['writable']) {
+            $result['reason_code'] = 'not_writable';
+            $result['message'] = "Folder tidak dapat ditulis oleh {$worker}.";
+            $result['detail'] = 'Berikan ACL hanya pada folder tujuan ini.';
+            return $result;
+        }
+
+        $testPath = $path . '/.jbackup-access-' . bin2hex(random_bytes(8));
+        error_clear_last();
+        $handle = @fopen($testPath, 'x+b');
+        if ($handle === false) {
+            $lastError = error_get_last();
+            $detail = trim((string) ($lastError['message'] ?? ''));
+            $readOnly = stripos($detail, 'read-only') !== false;
+            $result['reason_code'] = $readOnly ? 'read_only' : 'test_failed';
+            $result['message'] = $readOnly
+                ? 'Filesystem tujuan berada dalam kondisi read-only.'
+                : 'File pengujian tidak dapat dibuat.';
+            $result['detail'] = $detail !== '' ? $detail : null;
+            return $result;
+        }
+
+        $testOk = false;
+        try {
+            $written = fwrite($handle, 'J-BACKUP path access test');
+            $testOk = $written !== false && fflush($handle);
+        } finally {
+            fclose($handle);
+            if (is_file($testPath)) {
+                $testOk = @unlink($testPath) && $testOk;
+            }
+        }
+        $checks['test_file'] = $testOk;
+        if (!$testOk) {
+            $result['reason_code'] = 'test_failed';
+            $result['message'] = 'File pengujian tidak dapat ditulis atau dihapus.';
+            $result['detail'] = 'Periksa ACL, quota, dan status mount filesystem.';
+            return $result;
+        }
+
+        $total = disk_total_space($path);
+        $free = disk_free_space($path);
+        if ($total === false || $free === false) {
+            $result['reason_code'] = 'disk_unavailable';
+            $result['message'] = 'Kapasitas disk tidak dapat dibaca.';
+            $result['detail'] = 'Periksa apakah disk atau network mount masih terhubung.';
+            return $result;
+        }
+
+        $checks['disk'] = true;
+        $result['total_bytes'] = (int) $total;
+        $result['free_bytes'] = (int) $free;
+        $result['ready'] = true;
+        $result['reason_code'] = 'ready';
+        $result['message'] = 'Folder siap digunakan.';
+        $result['detail'] = 'Pengujian file berhasil dibuat dan dibersihkan oleh worker.';
+        $result['commands'] = [];
+        return $result;
+    }
+
+    private function workerUser(): string
+    {
+        if (function_exists('posix_geteuid') && function_exists('posix_getpwuid')) {
+            $account = posix_getpwuid(posix_geteuid());
+            if (is_array($account) && trim((string) ($account['name'] ?? '')) !== '') {
+                return (string) $account['name'];
+            }
+        }
+        return trim((string) (getenv('USER') ?: 'worker'));
+    }
+
+    private function pathAdministratorCommands(string $path, string $worker): array
+    {
+        $safeWorker = preg_replace('/[^A-Za-z0-9_.-]/', '', $worker) ?: 'jbackup';
+        $quotedPath = escapeshellarg($path);
+        return [
+            "sudo mkdir -p -- {$quotedPath}",
+            "sudo setfacl -m u:{$safeWorker}:rwx -- {$quotedPath}",
+            "sudo setfacl -d -m u:{$safeWorker}:rwx -- {$quotedPath}",
+            "namei -l -- {$quotedPath}",
+        ];
     }
 
     private function generateSshKey(array $payload, array $secret = []): array
@@ -1094,7 +1271,8 @@ SH;
         if ($path === '' || !str_starts_with($path, '/') || str_contains($path, "\0")) {
             throw new RuntimeException("Path Linux tidak valid: {$path}");
         }
-        return rtrim($path, '/');
+        $path = rtrim($path, '/');
+        return $path === '' ? '/' : $path;
     }
 
     private function absoluteDirectory(string $path, bool $create): string

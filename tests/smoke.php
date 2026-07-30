@@ -189,9 +189,34 @@ try {
         'backup_dir' => $backup,
         'minimum_free_bytes' => 0,
     ]);
-    $database->enqueueJobs('backup', [$created['id']]);
 
     $runner = new JobRunner($database, $root, true, $secretStore);
+    $blockedWithoutPathCheck = false;
+    try {
+        $database->enqueueJobs('backup', [$created['id']]);
+    } catch (RuntimeException $error) {
+        $blockedWithoutPathCheck = str_contains(
+            $error->getMessage(),
+            'Tes akses folder Backup'
+        );
+    }
+    assertTrue(
+        $blockedWithoutPathCheck,
+        'Pekerjaan tidak diblokir ketika folder belum diuji.'
+    );
+    $database->createPathTask('realtime', $staging);
+    $database->createPathTask('backup', $backup);
+    assertTrue(
+        $runner->run() === 0,
+        'Worker gagal menjalankan pengujian folder tujuan.'
+    );
+    assertTrue(
+        $database->latestPathCheck('realtime')['ready'] === true
+            && $database->latestPathCheck('backup')['ready'] === true,
+        'Folder realtime dan backup tidak ditandai siap.'
+    );
+    $database->enqueueJobs('backup', [$created['id']]);
+
     assertTrue($runner->run() === 1, 'Worker tidak memproses antrean.');
     assertTrue(
         $database->schedulerState('worker_heartbeat') !== null,
@@ -215,7 +240,10 @@ try {
     $database->updateSource($created['id'], ['archive_mode' => 'separate']);
     $database->enqueueJobs('backup', [$created['id']]);
     assertTrue($runner->run() === 1, 'Backup terpisah tidak diproses.');
-    $separateJob = $database->jobs(1)[0];
+    $separateJob = array_values(array_filter(
+        $database->jobs(10),
+        static fn (array $item): bool => $item['archive_mode'] === 'separate'
+    ))[0];
     assertTrue(
         $separateJob['status'] === 'success'
             && count($separateJob['outputs']) === 2
@@ -247,6 +275,20 @@ try {
     assertTrue($scheduledJob['type'] === 'sync', 'Jenis pekerjaan terjadwal tidak benar.');
     assertTrue($scheduledJob['status'] === 'success', 'Sinkronisasi terjadwal gagal.');
     assertTrue($runner->run() === 0, 'Jadwal interval berjalan dua kali terlalu cepat.');
+
+    $missingRealtime = $root . '/folder-yang-belum-ada';
+    $database->createPathTask('realtime', $missingRealtime);
+    assertTrue(
+        $runner->run() === 0,
+        'Worker gagal menyelesaikan diagnosis folder yang belum tersedia.'
+    );
+    $missingCheck = $database->latestPathCheck('realtime');
+    assertTrue(
+        $missingCheck['ready'] === false
+            && $missingCheck['reason_code'] === 'not_found'
+            && str_contains(implode("\n", $missingCheck['commands']), 'setfacl'),
+        'Diagnosis dan rekomendasi administrator untuk folder gagal tidak lengkap.'
+    );
 
     $keyPath = $root . '/.ssh/id_ed25519';
     $keyTask = $database->createSshTask('generate_key', [

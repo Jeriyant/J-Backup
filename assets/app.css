@@ -1011,6 +1011,116 @@ button.file-name:hover { color:var(--blue); }
 }
 .settings-actions { grid-column:1/-1; display:flex; justify-content:flex-end; gap:10px; }
 .panel-save { display:flex; justify-content:flex-end; padding-top:2px; }
+.path-panel-actions {
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:flex-end;
+    gap:10px;
+    padding-top:2px;
+}
+.button.path-test {
+    border-color:color-mix(in srgb,var(--cyan) 45%,var(--line));
+    background:color-mix(in srgb,var(--cyan) 7%,transparent);
+    color:var(--cyan);
+}
+.path-check {
+    display:flex;
+    align-items:center;
+    gap:11px;
+    border:1px solid var(--line);
+    border-radius:12px;
+    background:var(--surface-2);
+    padding:12px 14px;
+}
+.path-check-icon {
+    display:grid;
+    width:28px;
+    height:28px;
+    flex:0 0 auto;
+    place-items:center;
+    border-radius:9px;
+    background:color-mix(in srgb,var(--muted) 12%,transparent);
+    color:var(--muted);
+    font-weight:900;
+}
+.path-check > span:last-child { display:grid; gap:3px; min-width:0; }
+.path-check strong { font-size:11px; }
+.path-check small { color:var(--muted); font-size:9px; }
+.path-check.ready {
+    border-color:color-mix(in srgb,var(--success) 35%,var(--line));
+    background:color-mix(in srgb,var(--success) 7%,var(--surface));
+}
+.path-check.ready .path-check-icon {
+    background:color-mix(in srgb,var(--success) 15%,transparent);
+    color:var(--success);
+}
+.path-check.failed {
+    border-color:color-mix(in srgb,var(--red) 35%,var(--line));
+    background:color-mix(in srgb,var(--red) 7%,var(--surface));
+}
+.path-check.failed .path-check-icon {
+    background:color-mix(in srgb,var(--red) 15%,transparent);
+    color:var(--red);
+}
+.path-check-list {
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:9px;
+    margin:20px 0;
+    padding:0;
+    list-style:none;
+}
+.path-check-list li {
+    display:flex;
+    align-items:center;
+    gap:9px;
+    border:1px solid var(--line);
+    border-radius:11px;
+    background:var(--surface-2);
+    padding:11px 12px;
+    font-size:10px;
+}
+.path-check-list i {
+    display:grid;
+    width:21px;
+    height:21px;
+    place-items:center;
+    border-radius:7px;
+    font-style:normal;
+    font-weight:900;
+}
+.path-check-list .passed i {
+    background:color-mix(in srgb,var(--success) 14%,transparent);
+    color:var(--success);
+}
+.path-check-list .failed i {
+    background:color-mix(in srgb,var(--red) 14%,transparent);
+    color:var(--red);
+}
+.path-space { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+.path-space span {
+    display:grid;
+    gap:5px;
+    border:1px solid var(--line);
+    border-radius:11px;
+    background:var(--surface-2);
+    padding:13px;
+}
+.path-space small { color:var(--muted); font-size:9px; }
+.path-space strong { font-family:var(--font-display); font-size:17px; }
+.path-admin-help { margin-top:20px; }
+.path-admin-help pre {
+    overflow:auto;
+    border:1px solid var(--line);
+    border-radius:12px;
+    background:#050505;
+    padding:15px;
+    color:#e8e8e8;
+    font-family:var(--font-mono);
+    font-size:10px;
+    line-height:1.7;
+    white-space:pre-wrap;
+}
 .system-monitor, .schedule-monitor { min-width:0; }
 .system-metrics {
     display:grid;
@@ -1306,6 +1416,9 @@ button.file-name:hover { color:var(--blue); }
     .user-chip i, .user-chip .account-chevron { font-size:12px; }
     .top-actions .button { width:42px; overflow:hidden; padding:0; font-size:0; }
     .top-actions .button > span { margin:0; font-size:11px; }
+    .path-panel-actions { display:grid; grid-template-columns:1fr; }
+    .path-panel-actions .button { width:100%; font-size:11px; }
+    .path-check-list { grid-template-columns:1fr; }
     .hero { min-height:255px; align-items:flex-start; padding:25px; }
     .health { width:76px; height:76px; margin-left:-18px; transform:translate(20px,-14px); }
     .health span { width:38px; height:38px; font-size:10px; }

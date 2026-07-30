@@ -261,6 +261,28 @@ try {
     ]);
     assertHttp($settings['status'] === 200, 'Folder backup untuk explorer gagal disimpan.');
 
+    $pathTask = $request('path_task_create', 'POST', [
+        'kind' => 'backup',
+        'path' => $backupRoot,
+    ]);
+    assertHttp(
+        $pathTask['status'] === 202
+            && $pathTask['body']['task']['kind'] === 'backup'
+            && $pathTask['body']['task']['status'] === 'queued',
+        'Pengujian akses folder tidak dapat dimasukkan ke antrean worker.'
+    );
+    $pathTaskStatus = $request(
+        'path_task_status',
+        'GET',
+        null,
+        ['id' => $pathTask['body']['task']['id']]
+    );
+    assertHttp(
+        $pathTaskStatus['status'] === 200
+            && $pathTaskStatus['body']['task']['path'] === $backupRoot,
+        'Status pengujian akses folder tidak dapat dibaca.'
+    );
+
     $diskList = $request('disk_list');
     assertHttp(
         $diskList['status'] === 200 && is_array($diskList['body']['disks']),
@@ -655,6 +677,7 @@ try {
             )->fetchColumn()
             && !$secretDatabase->query('SELECT COUNT(*) FROM jobs')->fetchColumn()
             && !$secretDatabase->query('SELECT COUNT(*) FROM ssh_tasks')->fetchColumn()
+            && !$secretDatabase->query('SELECT COUNT(*) FROM path_tasks')->fetchColumn()
             && !$secretDatabase->query(
                 'SELECT COUNT(*) FROM encrypted_secrets'
             )->fetchColumn(),

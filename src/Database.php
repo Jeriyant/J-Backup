@@ -192,6 +192,23 @@ final class Database
 
             CREATE INDEX IF NOT EXISTS ssh_tasks_status_idx
             ON ssh_tasks(status, created_at);
+
+            CREATE TABLE IF NOT EXISTS path_tasks (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL CHECK(kind IN ('realtime', 'backup')),
+                path TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN (
+                    'queued', 'running', 'success', 'failed'
+                )),
+                result TEXT,
+                error TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS path_tasks_status_idx
+            ON path_tasks(status, created_at);
             SQL
         );
 
@@ -501,6 +518,7 @@ final class Database
                 'database_entries',
                 'schedules',
                 'ssh_tasks',
+                'path_tasks',
                 'encrypted_secrets',
                 'scheduler_state',
                 'settings',
@@ -661,6 +679,9 @@ final class Database
     public static function validateRemotePath(string $path): string
     {
         $path = rtrim(trim($path), '/');
+        if ($path === '') {
+            $path = '/';
+        }
         if (
             $path === ''
             || !str_starts_with($path, '/')
@@ -995,6 +1016,24 @@ final class Database
         if (!in_array($type, ['sync', 'backup'], true)) {
             throw new RuntimeException('Jenis pekerjaan tidak dikenal.');
         }
+        $kind = $type === 'sync' ? 'realtime' : 'backup';
+        $setting = $kind === 'realtime' ? 'staging_dir' : 'backup_dir';
+        $settings = $this->settings();
+        $check = $this->latestPathCheck($kind);
+        if (
+            !is_array($check)
+            || ($check['ready'] ?? false) !== true
+            || !hash_equals(
+                rtrim((string) ($settings[$setting] ?? ''), '/'),
+                rtrim((string) ($check['path'] ?? ''), '/')
+            )
+        ) {
+            throw new RuntimeException(
+                'Jalankan Tes akses folder '
+                . ($kind === 'realtime' ? 'Realtime' : 'Backup')
+                . ' hingga berhasil sebelum membuat pekerjaan.'
+            );
+        }
 
         $databases = $this->databases(true);
         if ($databaseIds !== []) {
@@ -1173,6 +1212,19 @@ final class Database
         $statement->execute([$key]);
     }
 
+    public function latestPathCheck(string $kind): ?array
+    {
+        if (!in_array($kind, ['realtime', 'backup'], true)) {
+            throw new RuntimeException('Jenis folder tidak dikenal.');
+        }
+        $value = $this->schedulerState('path_check_' . $kind);
+        if ($value === null) {
+            return null;
+        }
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
     public function encryptedSecret(string $name): ?string
     {
         $statement = $this->pdo->prepare(
@@ -1322,6 +1374,102 @@ final class Database
         $statement->execute([$message, $id]);
     }
 
+    public function createPathTask(string $kind, string $path): array
+    {
+        if (!in_array($kind, ['realtime', 'backup'], true)) {
+            throw new RuntimeException('Jenis folder tidak dikenal.');
+        }
+        $path = rtrim(trim($path), '/');
+        if (
+            $path === ''
+            || !str_starts_with($path, '/')
+            || str_contains($path, "\0")
+        ) {
+            throw new RuntimeException('Folder harus berupa path absolut Linux.');
+        }
+
+        $existing = $this->pdo->prepare(
+            "SELECT * FROM path_tasks
+             WHERE kind = ? AND path = ? AND status IN ('queued', 'running')
+             ORDER BY created_at ASC LIMIT 1"
+        );
+        $existing->execute([$kind, $path]);
+        $row = $existing->fetch();
+        if ($row) {
+            return $this->normalizePathTask($row);
+        }
+
+        $id = self::uuid();
+        $statement = $this->pdo->prepare(
+            "INSERT INTO path_tasks(id, kind, path, status, created_at)
+             VALUES (?, ?, ?, 'queued', ?)"
+        );
+        $statement->execute([$id, $kind, $path, self::now()]);
+        return $this->pathTask($id);
+    }
+
+    public function pathTask(string $id): ?array
+    {
+        $statement = $this->pdo->prepare('SELECT * FROM path_tasks WHERE id = ?');
+        $statement->execute([$id]);
+        $row = $statement->fetch();
+        return $row ? $this->normalizePathTask($row) : null;
+    }
+
+    public function nextQueuedPathTask(): ?array
+    {
+        $this->pdo->exec('BEGIN IMMEDIATE');
+        try {
+            $row = $this->pdo->query(
+                "SELECT * FROM path_tasks
+                 WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1"
+            )->fetch();
+            if (!$row) {
+                $this->pdo->commit();
+                return null;
+            }
+            $startedAt = self::now();
+            $statement = $this->pdo->prepare(
+                "UPDATE path_tasks
+                 SET status = 'running', started_at = ?
+                 WHERE id = ? AND status = 'queued'"
+            );
+            $statement->execute([$startedAt, $row['id']]);
+            $this->pdo->commit();
+            $task = $this->normalizePathTask($row);
+            $task['status'] = 'running';
+            $task['started_at'] = $startedAt;
+            return $task;
+        } catch (\Throwable $error) {
+            $this->pdo->rollBack();
+            throw $error;
+        }
+    }
+
+    public function updatePathTask(string $id, array $values): ?array
+    {
+        $allowed = ['status', 'result', 'error', 'started_at', 'finished_at'];
+        $set = [];
+        $parameters = [];
+        foreach ($values as $key => $value) {
+            if (!in_array($key, $allowed, true)) {
+                continue;
+            }
+            $set[] = "{$key} = ?";
+            $parameters[] = $key === 'result' && is_array($value)
+                ? json_encode($value, JSON_THROW_ON_ERROR)
+                : $value;
+        }
+        if ($set !== []) {
+            $parameters[] = $id;
+            $statement = $this->pdo->prepare(
+                'UPDATE path_tasks SET ' . implode(', ', $set) . ' WHERE id = ?'
+            );
+            $statement->execute($parameters);
+        }
+        return $this->pathTask($id);
+    }
+
     public function activeJob(): ?array
     {
         $row = $this->pdo->query(
@@ -1371,6 +1519,23 @@ final class Database
             'log' => $row['log'],
             'error' => $row['error'],
             'queued_at' => $row['queued_at'],
+            'started_at' => $row['started_at'],
+            'finished_at' => $row['finished_at'],
+        ];
+    }
+
+    private function normalizePathTask(array $row): array
+    {
+        return [
+            'id' => $row['id'],
+            'kind' => $row['kind'],
+            'path' => $row['path'],
+            'status' => $row['status'],
+            'result' => $row['result'] === null
+                ? null
+                : json_decode($row['result'], true, 512, JSON_THROW_ON_ERROR),
+            'error' => $row['error'],
+            'created_at' => $row['created_at'],
             'started_at' => $row['started_at'],
             'finished_at' => $row['finished_at'],
         ];

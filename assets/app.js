@@ -36,6 +36,10 @@ const app = document.querySelector("#app");
         lastActivityAt: Date.now(),
         idleTimer: null,
         mobileMenu: false,
+        pathChecks: {
+            realtime: null,
+            backup: null,
+        },
     };
 
     const escapeHtml = (value) => String(value ?? "")
@@ -175,6 +179,10 @@ const app = document.querySelector("#app");
     async function loadDashboard(render = true, background = false) {
         const started = performance.now();
         state.dashboard = await api("dashboard", { background });
+        state.pathChecks.realtime =
+            state.dashboard.path_checks?.realtime || null;
+        state.pathChecks.backup =
+            state.dashboard.path_checks?.backup || null;
         state.latencyMs = Math.max(0, Math.round(performance.now() - started));
         if (render) {
             renderApp();
@@ -683,6 +691,58 @@ const app = document.querySelector("#app");
         </div>`;
     }
 
+    function pathCheckMarkup(kind, result = null) {
+        const label = kind === "realtime" ? "Realtime" : "Backup";
+        if (!result) {
+            return `<div class="path-check empty" id="path-check-${kind}">
+                <span class="path-check-icon">?</span>
+                <span><strong>Akses folder belum diuji</strong>
+                    <small>Tes dijalankan langsung oleh worker.</small></span>
+            </div>`;
+        }
+        return `<div class="path-check ${result.ready ? "ready" : "failed"}" id="path-check-${kind}">
+            <span class="path-check-icon">${result.ready ? "✓" : "!"}</span>
+            <span><strong>${escapeHtml(result.message)}</strong>
+                <small>${escapeHtml(label)} · worker ${escapeHtml(result.worker_user)}
+                ${result.ready ? ` · tersedia ${bytes(result.free_bytes)}` : ""}</small></span>
+        </div>`;
+    }
+
+    function pathCheckDetailMarkup(result) {
+        const labels = {
+            exists: "Folder tersedia",
+            directory: "Path adalah direktori",
+            readable: "Dapat dibaca",
+            writable: "Dapat ditulis",
+            test_file: "File uji dapat dibuat dan dihapus",
+            disk: "Kapasitas disk dapat dibaca",
+        };
+        const checks = Object.entries(labels).map(([key, label]) => `
+            <li class="${result.checks?.[key] ? "passed" : "failed"}">
+                <i>${result.checks?.[key] ? "✓" : "×"}</i>
+                <span>${escapeHtml(label)}</span>
+            </li>`).join("");
+        const commands = (result.commands || []).length
+            ? `<div class="path-admin-help">
+                <p class="eyebrow">PERINTAH ADMINISTRATOR</p>
+                <p class="muted">Jalankan hanya pada server produksi setelah memeriksa path.</p>
+                <pre>${escapeHtml(result.commands.join("\n"))}</pre>
+            </div>`
+            : "";
+        return `
+            <p class="eyebrow">${result.ready ? "FOLDER SIAP" : "AKSES FOLDER GAGAL"}</p>
+            <h2>${escapeHtml(result.message)}</h2>
+            <p class="path">${escapeHtml(result.path)}</p>
+            <p class="muted">Pengujian dijalankan sebagai <strong>${escapeHtml(result.worker_user)}</strong>.
+                ${escapeHtml(result.detail || "")}</p>
+            <ul class="path-check-list">${checks}</ul>
+            ${result.ready ? `<div class="path-space">
+                <span><small>Total</small><strong>${bytes(result.total_bytes)}</strong></span>
+                <span><small>Tersedia</small><strong>${bytes(result.free_bytes)}</strong></span>
+            </div>` : ""}
+            ${commands}`;
+    }
+
     function renderSettings() {
         const s = state.dashboard.settings;
         const sshConnected = s.ssh_connected === true;
@@ -733,14 +793,22 @@ const app = document.querySelector("#app");
                     <label>Kompresi 7z<select name="compression_level">${[0,1,3,5,7,9].map((level) => `<option value="${level}" ${Number(s.compression_level) === level ? "selected" : ""}>Level ${level}</option>`).join("")}</select></label>
                     <label>Minimum ruang kosong<input name="minimum_free_bytes" type="number" min="0" value="${s.minimum_free_bytes}"></label>
                     <label>Zona waktu<input name="timezone" value="${escapeHtml(s.timezone)}"></label>
-                    <div class="panel-save span-2"><button class="button primary" type="submit"><span>✓</span>Simpan pengaturan backup</button></div>
+                    <div class="path-panel-actions span-2">
+                        <button class="button path-test" type="button" data-action="test-path" data-path-kind="backup"><span>✓</span>Tes akses folder</button>
+                        <button class="button primary" type="submit"><span>✓</span>Simpan pengaturan backup</button>
+                    </div>
+                    <div class="span-2">${pathCheckMarkup("backup", state.pathChecks.backup)}</div>
                 </div>
             </form>
             <form class="panel form settings-realtime-panel" data-form="settings-realtime"><div class="panel-heading"><div><p class="eyebrow">DATA REALTIME</p><h2>Tujuan RSYNC</h2></div></div>
                 <div class="form-grid">
                     <label class="span-2">Folder data realtime<input name="staging_dir" value="${escapeHtml(s.staging_dir)}">
                         <small>Data terbaru hasil sinkronisasi disimpan di sini dan menjadi sumber pembuatan backup.</small></label>
-                    <div class="panel-save span-2"><button class="button primary" type="submit"><span>✓</span>Simpan pengaturan realtime</button></div>
+                    <div class="path-panel-actions span-2">
+                        <button class="button path-test" type="button" data-action="test-path" data-path-kind="realtime"><span>✓</span>Tes akses folder</button>
+                        <button class="button primary" type="submit"><span>✓</span>Simpan pengaturan realtime</button>
+                    </div>
+                    <div class="span-2">${pathCheckMarkup("realtime", state.pathChecks.realtime)}</div>
                 </div>
             </form>
             <section class="panel danger-zone">
@@ -962,6 +1030,68 @@ const app = document.querySelector("#app");
         toast("Jadwal diperbarui.");
     }
 
+    async function waitForPathTask(id) {
+        for (let attempt = 0; attempt < 75; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            const response = await api("path_task_status", { query: { id } });
+            if (response.task.status === "success") return response.task;
+            if (response.task.status === "failed") {
+                throw new Error(
+                    response.task.error || "Pengujian folder gagal dijalankan."
+                );
+            }
+            if (
+                response.task.status === "queued"
+                && attempt >= 20
+                && !workerIsReady(response.worker_heartbeat)
+            ) {
+                throw new Error(
+                    "Worker tidak aktif. Periksa j-backup-worker.timer dan pastikan worker memakai database aplikasi yang sama."
+                );
+            }
+        }
+        throw new Error(
+            "Worker belum menyelesaikan pengujian folder. Periksa status timer."
+        );
+    }
+
+    async function runPathCheck(kind) {
+        const formName = kind === "realtime"
+            ? "settings-realtime"
+            : "settings-backup";
+        const inputName = kind === "realtime" ? "staging_dir" : "backup_dir";
+        const form = document.querySelector(`[data-form="${formName}"]`);
+        const path = String(form?.elements?.[inputName]?.value || "").trim();
+        if (!path.startsWith("/")) {
+            throw new Error("Folder harus berupa path absolut Linux.");
+        }
+
+        showModal(`
+            <div class="ssh-wait"><i></i>
+                <p class="eyebrow">MENUNGGU WORKER</p>
+                <h2>Menguji akses folder</h2>
+                <p class="path">${escapeHtml(path)}</p>
+                <p class="muted">Worker akan membuat lalu menghapus file uji kecil. Folder dan izin tidak akan diubah.</p>
+            </div>
+        `, true);
+        const response = await api("path_task_create", {
+            method: "POST",
+            body: { kind, path },
+        });
+        const task = await waitForPathTask(response.task.id);
+        const result = task.result;
+        state.pathChecks[kind] = result;
+
+        const current = document.querySelector(`#path-check-${kind}`);
+        if (current) {
+            current.outerHTML = pathCheckMarkup(kind, result);
+        }
+        showModal(pathCheckDetailMarkup(result), true);
+        toast(result.ready
+            ? "Folder siap digunakan oleh worker."
+            : "Folder belum dapat digunakan oleh worker.");
+    }
+
     function currentSshSettings() {
         const form = document.querySelector('[data-form="settings-ssh"]');
         if (!form) throw new Error("Form pengaturan tidak ditemukan.");
@@ -1177,6 +1307,9 @@ const app = document.querySelector("#app");
                 sourceImportDialog();
             } else if (target.dataset.action === "add") sourceDialog();
             else if (target.dataset.action === "manual") manualDialog();
+            else if (target.dataset.action === "test-path") {
+                await runPathCheck(target.dataset.pathKind);
+            }
             else if (target.dataset.action === "close-modal") closeModal();
             else if (target.dataset.action === "select-all") {
                 const filtered = state.dashboard.sources.filter((item) => item.name.toLowerCase().includes(state.query.toLowerCase()));

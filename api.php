@@ -484,6 +484,8 @@ try {
                  WHERE status IN ('running', 'cancel_requested'))
                 +
                 (SELECT COUNT(*) FROM ssh_tasks WHERE status = 'running')
+                +
+                (SELECT COUNT(*) FROM path_tasks WHERE status = 'running')
             )"
         )->fetchColumn();
         if ($activeCount > 0) {
@@ -566,6 +568,10 @@ try {
         $settings['ssh_connected'] = $connection['connected'];
         $settings['ssh_connected_target'] = $connection['target'];
         $settings['ssh_connected_at'] = $connection['connected_at'];
+        $pathChecks = [
+            'realtime' => $database->latestPathCheck('realtime'),
+            'backup' => $database->latestPathCheck('backup'),
+        ];
         $queueCount = (int) $database->pdo()->query(
             "SELECT COUNT(*) FROM jobs WHERE status = 'queued'"
         )->fetchColumn();
@@ -573,6 +579,7 @@ try {
             'version' => JBACKUP_VERSION,
             'user' => ['username' => $_SESSION['username']],
             'settings' => $settings,
+            'path_checks' => $pathChecks,
             'sources' => $database->sources(),
             'schedules' => $database->schedules(),
             'jobs' => $database->jobs(150),
@@ -799,6 +806,7 @@ try {
     if ($action === 'settings_update') {
         requireMethod('POST');
         $payload = input();
+        $previousSettings = $database->settings();
         $sshPassword = (string) ($payload['ssh_password'] ?? '');
         unset($payload['ssh_password'], $payload['ssh_password_saved']);
         $validatedSettings = validateSettings($payload);
@@ -816,6 +824,25 @@ try {
         $settings = publicSettings(
             $database->updateSettings($validatedSettings)
         );
+        foreach ([
+            'realtime' => 'staging_dir',
+            'backup' => 'backup_dir',
+        ] as $kind => $setting) {
+            if (
+                array_key_exists($setting, $validatedSettings)
+                && rtrim((string) $previousSettings[$setting], '/')
+                    !== rtrim((string) $settings[$setting], '/')
+            ) {
+                $check = $database->latestPathCheck($kind);
+                if (
+                    !is_array($check)
+                    || rtrim((string) ($check['path'] ?? ''), '/')
+                        !== rtrim((string) $settings[$setting], '/')
+                ) {
+                    $database->deleteSchedulerState('path_check_' . $kind);
+                }
+            }
+        }
         $settings['ssh_password_saved'] = $secretStore->has('ssh_password');
         respond([
             'settings' => $settings,
@@ -916,6 +943,34 @@ try {
         $task = $database->sshTask((string) ($_GET['id'] ?? ''));
         if (!$task) {
             throw new HttpException('Tindakan SSH tidak ditemukan.', 404);
+        }
+        respond([
+            'task' => $task,
+            'worker_heartbeat' => $database->schedulerState('worker_heartbeat'),
+        ]);
+    }
+
+    if ($action === 'path_task_create') {
+        requireMethod('POST');
+        $payload = input();
+        $kind = (string) ($payload['kind'] ?? '');
+        $path = trim((string) ($payload['path'] ?? ''));
+        if (!in_array($kind, ['realtime', 'backup'], true)) {
+            throw new HttpException('Jenis folder tidak dikenal.', 422);
+        }
+        validateSettings([
+            $kind === 'realtime' ? 'staging_dir' : 'backup_dir' => $path,
+        ]);
+        respond([
+            'task' => $database->createPathTask($kind, $path),
+        ], 202);
+    }
+
+    if ($action === 'path_task_status') {
+        requireMethod('GET');
+        $task = $database->pathTask((string) ($_GET['id'] ?? ''));
+        if (!$task) {
+            throw new HttpException('Pengujian folder tidak ditemukan.', 404);
         }
         respond([
             'task' => $task,
