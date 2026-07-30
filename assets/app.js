@@ -65,6 +65,13 @@ const app = document.querySelector("#app");
         return days ? `${days}h ${hours}j` : hours ? `${hours}j ${minutes}m` : `${minutes}m`;
     };
 
+    const latencyClass = (milliseconds) => {
+        if (!Number.isFinite(milliseconds)) return "latency-unknown";
+        if (milliseconds <= 100) return "latency-good";
+        if (milliseconds <= 250) return "latency-warning";
+        return "latency-bad";
+    };
+
     const statusText = (status) => ({
         queued: "Antrean",
         running: "Berjalan",
@@ -305,7 +312,7 @@ const app = document.querySelector("#app");
                         <div><span>Uptime</span><strong>${duration(system.uptime_seconds)}</strong></div>
                         <div><span>CPU</span><strong>${system.cpu_percent ?? "—"}%</strong><small>${system.cpu_cores || "—"} core</small></div>
                         <div><span>Memory</span><strong>${system.memory?.used_percent ?? "—"}%</strong><small>${bytes(system.memory?.used)} / ${bytes(system.memory?.total)}</small></div>
-                        <div><span>Latensi</span><strong>${state.latencyMs ?? "—"} ms</strong><small>Browser → server</small></div>
+                        <div><span>Latensi</span><strong class="latency-value ${latencyClass(state.latencyMs)}">${state.latencyMs ?? "—"} ms</strong><small>Browser → server</small></div>
                     </div>
                 </article>
                 <article class="panel schedule-monitor">
@@ -549,7 +556,7 @@ const app = document.querySelector("#app");
         const s = state.dashboard.settings;
         const sshConnected = s.ssh_connected === true;
         return `<div class="grid settings-grid">
-            <form class="panel form" data-form="settings-ssh"><div class="panel-heading"><div><p class="eyebrow">KONEKSI SUMBER</p><h2>SSH & rsync</h2></div></div>
+            <form class="panel form" data-form="settings-ssh"><div class="panel-heading"><div><p class="eyebrow">KONEKSI SUMBER</p><h2>SSH & RSYNC</h2></div></div>
                 <div class="form-grid">
                     <label>Host sumber<input name="remote_host" value="${escapeHtml(s.remote_host)}" placeholder="192.168.1.1"></label>
                     <label>Port SSH<input name="remote_port" type="number" min="1" max="65535" value="${s.remote_port}"></label>
@@ -585,17 +592,9 @@ const app = document.querySelector("#app");
                             ? `Terhubung ke ${escapeHtml(s.ssh_connected_target || `${s.remote_user}@${s.remote_host}`)}. Disconnect mencabut key remote dan menghapus key lokal.`
                             : "Connect membuat key, memasangnya ke server sumber, lalu menguji login tanpa password."}</small>
                     </div>
-                    <div class="panel-save span-2"><button class="button primary" type="submit"><span>✓</span>Simpan koneksi</button></div>
                 </div>
             </form>
-            <form class="panel form" data-form="settings-realtime"><div class="panel-heading"><div><p class="eyebrow">DATA REALTIME</p><h2>Tujuan rsync</h2></div></div>
-                <div class="form-grid">
-                    <label class="span-2">Folder data realtime<input name="staging_dir" value="${escapeHtml(s.staging_dir)}">
-                        <small>Data rsync terbaru disimpan di sini dan menjadi sumber backup.</small></label>
-                    <div class="panel-save span-2"><button class="button primary" type="submit"><span>✓</span>Simpan pengaturan realtime</button></div>
-                </div>
-            </form>
-            <form class="panel form" data-form="settings-backup"><div class="panel-heading"><div><p class="eyebrow">HASIL BACKUP</p><h2>Lokasi & penamaan</h2></div></div>
+            <form class="panel form" data-form="settings-backup"><div class="panel-heading"><div><p class="eyebrow">HASIL BACKUP</p><h2>Lokasi & Penamaan</h2></div></div>
                 <div class="form-grid">
                     <label class="span-2">Folder tujuan<input name="backup_dir" value="${escapeHtml(s.backup_dir)}"></label>
                     <label class="span-2">Template nama file<input name="filename_template" value="${escapeHtml(s.filename_template)}">
@@ -604,6 +603,13 @@ const app = document.querySelector("#app");
                     <label>Minimum ruang kosong<input name="minimum_free_bytes" type="number" min="0" value="${s.minimum_free_bytes}"></label>
                     <label>Zona waktu<input name="timezone" value="${escapeHtml(s.timezone)}"></label>
                     <div class="panel-save span-2"><button class="button primary" type="submit"><span>✓</span>Simpan pengaturan backup</button></div>
+                </div>
+            </form>
+            <form class="panel form settings-realtime-panel" data-form="settings-realtime"><div class="panel-heading"><div><p class="eyebrow">DATA REALTIME</p><h2>Tujuan RSYNC</h2></div></div>
+                <div class="form-grid">
+                    <label class="span-2">Folder data realtime<input name="staging_dir" value="${escapeHtml(s.staging_dir)}">
+                        <small>Data terbaru hasil sinkronisasi disimpan di sini dan menjadi sumber pembuatan backup.</small></label>
+                    <div class="panel-save span-2"><button class="button primary" type="submit"><span>✓</span>Simpan pengaturan realtime</button></div>
                 </div>
             </form>
             <section class="panel danger-zone">
@@ -787,6 +793,15 @@ const app = document.querySelector("#app");
             const sshSettings = currentSshSettings();
             const password = sshSettings.password;
             delete sshSettings.password;
+            if (type === "generate_key" && installKey) {
+                await api("settings_update", {
+                    method: "POST",
+                    body: {
+                        ...sshSettings,
+                        ...(password ? { ssh_password: password } : {}),
+                    },
+                });
+            }
             const response = await api("ssh_task_create", {
                 method: "POST",
                 body: {

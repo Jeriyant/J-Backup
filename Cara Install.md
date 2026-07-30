@@ -167,9 +167,9 @@ Saat pertama dibuka:
 2. Buka menu **Pengaturan**.
 3. Isi host, port, user, dan password SSH. User awal adalah `root`, tetapi
    bebas diganti sesuai akun pada server sumber.
-4. Tekan **Connect** untuk membuat dan memasang public key. Setelah koneksi
-   berhasil, host, port, user, password terenkripsi, tipe key, komentar, dan
-   lokasi private key otomatis disimpan.
+4. Tekan **Connect** untuk menyimpan konfigurasi koneksi, mengenkripsi password,
+   membuat key, dan memasang public key. Tidak ada tombol simpan koneksi
+   terpisah.
 5. Tombol Connect akan berubah menjadi **Disconnect**.
 6. Gunakan **Tes koneksi** untuk menguji kembali autentikasi private key.
 7. Atur **Folder data realtime** pada panel **Data Realtime**, lalu simpan

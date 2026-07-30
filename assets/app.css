@@ -941,6 +941,12 @@ button.file-name:hover { color:var(--blue); }
 }
 .system-metrics span, .system-metrics small { color:var(--muted); font-size:9px; }
 .system-metrics strong { overflow:hidden; font-family:"Oxanium",sans-serif; font-size:18px; text-overflow:ellipsis; }
+.system-metrics .latency-value { transition:color .2s ease; }
+.latency-value.latency-good { color:var(--success); }
+.latency-value.latency-warning { color:var(--amber); }
+.latency-value.latency-bad { color:var(--red); }
+.latency-value.latency-unknown { color:var(--muted); }
+.settings-realtime-panel { align-self:start; }
 .schedule-status-list { display:grid; gap:9px; }
 .schedule-status-list > div {
     display:flex;
