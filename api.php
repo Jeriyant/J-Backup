@@ -19,7 +19,7 @@ $auth = $container['auth'];
 /** @var \JBackup\SecretStore $secretStore */
 $secretStore = $container['secret_store'];
 
-const JBACKUP_VERSION = '0.3.0';
+const JBACKUP_VERSION = '0.4.0';
 
 function input(): array
 {
@@ -694,7 +694,6 @@ try {
             if (!rename($temporary, $destination)) {
                 throw new RuntimeException('File upload tidak dapat difinalisasi.');
             }
-            @chgrp($destination, 'jbackup');
             @chmod($destination, 0660);
         } finally {
             if (is_file($temporary)) {

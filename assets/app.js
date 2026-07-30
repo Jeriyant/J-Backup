@@ -1046,7 +1046,7 @@ const app = document.querySelector("#app");
                 && !workerIsReady(response.worker_heartbeat)
             ) {
                 throw new Error(
-                    "Worker tidak aktif. Periksa j-backup-worker.timer dan pastikan worker memakai database aplikasi yang sama."
+                    "Worker root tidak aktif. Periksa j-backup-worker.timer dan pastikan worker memakai database aplikasi yang sama."
                 );
             }
         }

@@ -71,7 +71,8 @@ Installer akan:
 - memasang Apache, PHP 8.2+, SQLite, Sodium, PHP Zip/XML untuk import Excel,
   rsync, 7-Zip, OpenSSH, dan `sshpass`;
 - menampilkan verifikasi setiap paket dengan status `OK` atau `GAGAL`;
-- membuat user sistem `jbackup`;
+- menjalankan worker sebagai `root` agar lokasi sumber dan tujuan dapat
+  menggunakan path absolut di seluruh server;
 - menyiapkan database, folder `Realtime-Data`, `Hasil-Backup`, SSH, dan key
   enkripsi;
 - membuat konfigurasi Apache berdasarkan lokasi aplikasi;
@@ -121,9 +122,8 @@ huruf, angka, titik, garis bawah, tanda hubung, atau garis miring.
 Installer mengatur izin secara otomatis:
 
 - file aplikasi dimiliki `root`;
-- data runtime dan hasil backup dimiliki `jbackup`;
+- data runtime dimiliki `root` dengan grup user Apache;
 - folder realtime dan hasil backup disiapkan otomatis oleh installer;
-- user Apache dimasukkan ke grup `jbackup`;
 - `storage/.ssh` menggunakan mode `770` agar worker dapat membuat key dan
   aplikasi web dapat membersihkannya saat Reset Database;
 - `storage/secret.key` menggunakan mode `640`.
@@ -132,7 +132,7 @@ Untuk contoh aplikasi di `/opt/j-backup`:
 
 ```bash
 sudo chown -R root:root /opt/j-backup
-sudo chown -R jbackup:jbackup \
+sudo chown -R root:www-data \
   /opt/j-backup/storage \
   /opt/j-backup/Realtime-Data \
   /opt/j-backup/Hasil-Backup
@@ -143,9 +143,9 @@ sudo chmod 770 \
 sudo chmod 640 /opt/j-backup/storage/secret.key
 ```
 
-Semua direktori induk lokasi aplikasi harus dapat dilintasi oleh Apache dan
-user `jbackup`. Hindari menaruh aplikasi di home pribadi yang memiliki mode
-`700`.
+Semua direktori induk lokasi aplikasi harus dapat dilintasi oleh Apache.
+Worker berjalan sebagai `root`, sedangkan antarmuka web tetap berjalan sebagai
+user Apache dan hanya membutuhkan akses ke database serta folder upload.
 
 ## 5. Buka dan setup aplikasi
 
@@ -236,9 +236,9 @@ pengecekan pembaruan GitHub. Status **Terhubung** hanya tampil jika target
 host/user yang tersimpan cocok dengan koneksi terakhir dan private key lokal
 masih tersedia.
 
-Private key tidak diletakkan di `/root`. Worker berjalan sebagai akun sistem
-terbatas `jbackup`, sehingga key disimpan di `<lokasi-data>/.ssh` agar dapat
-dipakai tanpa memberikan hak akses root kepada aplikasi.
+Worker berjalan sebagai `root`. Private key tetap disimpan di
+`<lokasi-data>/.ssh` agar seluruh data aplikasi berada pada satu lokasi dan
+dapat dibersihkan melalui Disconnect atau Reset Database.
 
 Password SSH disimpan terenkripsi memakai Sodium SecretBox. Key enkripsi
 berada di:
@@ -360,7 +360,7 @@ dan folder `.ssh`:
 ```bash
 sudo systemctl stop j-backup-worker.timer apache2
 sudo cp -a /LOKASI-LAMA/storage/. /LOKASI-BARU/storage/
-sudo chown -R jbackup:jbackup /LOKASI-BARU/storage
+sudo chown -R root:www-data /LOKASI-BARU/storage
 cd /LOKASI-BARU
 sudo bash scripts/install-linux.sh
 ```

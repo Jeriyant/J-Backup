@@ -198,7 +198,7 @@ final class JobRunner
             'reason_code' => 'not_found',
             'message' => 'Folder belum tersedia.',
             'detail' => null,
-            'commands' => $this->pathAdministratorCommands($path, $worker),
+            'commands' => $this->pathAdministratorCommands($path),
         ];
 
         if (!file_exists($path)) {
@@ -225,7 +225,7 @@ final class JobRunner
         if (!$checks['writable']) {
             $result['reason_code'] = 'not_writable';
             $result['message'] = "Folder tidak dapat ditulis oleh {$worker}.";
-            $result['detail'] = 'Berikan ACL hanya pada folder tujuan ini.';
+            $result['detail'] = 'Periksa status read-only, mount, atau atribut filesystem.';
             return $result;
         }
 
@@ -258,7 +258,7 @@ final class JobRunner
         if (!$testOk) {
             $result['reason_code'] = 'test_failed';
             $result['message'] = 'File pengujian tidak dapat ditulis atau dihapus.';
-            $result['detail'] = 'Periksa ACL, quota, dan status mount filesystem.';
+            $result['detail'] = 'Periksa quota dan status mount filesystem.';
             return $result;
         }
 
@@ -293,15 +293,13 @@ final class JobRunner
         return trim((string) (getenv('USER') ?: 'worker'));
     }
 
-    private function pathAdministratorCommands(string $path, string $worker): array
+    private function pathAdministratorCommands(string $path): array
     {
-        $safeWorker = preg_replace('/[^A-Za-z0-9_.-]/', '', $worker) ?: 'jbackup';
         $quotedPath = escapeshellarg($path);
         return [
             "sudo mkdir -p -- {$quotedPath}",
-            "sudo setfacl -m u:{$safeWorker}:rwx -- {$quotedPath}",
-            "sudo setfacl -d -m u:{$safeWorker}:rwx -- {$quotedPath}",
             "namei -l -- {$quotedPath}",
+            "findmnt -T {$quotedPath}",
         ];
     }
 

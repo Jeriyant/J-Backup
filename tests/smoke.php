@@ -286,7 +286,7 @@ try {
     assertTrue(
         $missingCheck['ready'] === false
             && $missingCheck['reason_code'] === 'not_found'
-            && str_contains(implode("\n", $missingCheck['commands']), 'setfacl'),
+            && str_contains(implode("\n", $missingCheck['commands']), 'mkdir -p'),
         'Diagnosis dan rekomendasi administrator untuk folder gagal tidak lengkap.'
     );
 

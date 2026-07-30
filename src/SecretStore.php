@@ -86,7 +86,6 @@ final class SecretStore
                 } finally {
                     fclose($handle);
                 }
-                @chgrp($path, 'jbackup');
                 @chmod($path, 0640);
             }
         }

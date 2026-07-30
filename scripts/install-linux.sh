@@ -111,17 +111,6 @@ if (( verification_failed != 0 )); then
 fi
 echo "Semua paket wajib tersedia."
 
-if ! getent group jbackup >/dev/null 2>&1; then
-  groupadd --system jbackup
-fi
-if ! id jbackup >/dev/null 2>&1; then
-  useradd --system --gid jbackup --home-dir "${data_dir}" \
-    --shell /usr/sbin/nologin jbackup
-else
-  usermod --home "${data_dir}" jbackup
-fi
-usermod -a -G jbackup "${web_user}"
-
 install -d -m 0755 -o root -g root "${install_dir}"
 
 if [[ "${project_dir}" != "${install_dir}" ]]; then
@@ -143,11 +132,11 @@ for code_path in src assets bin deploy scripts index.php api.php og.png .htacces
     chown -R root:root "${install_dir}/${code_path}"
   fi
 done
-install -d -m 0770 -o jbackup -g jbackup \
+install -d -m 0770 -o root -g "${web_user}" \
   "${data_dir}" "${data_dir}/staging" "${realtime_dir}" \
   "${backup_dir}" "${log_dir}"
-install -d -m 0770 -o jbackup -g jbackup "${data_dir}/.ssh"
-chown -R jbackup:jbackup "${data_dir}"
+install -d -m 0770 -o root -g "${web_user}" "${data_dir}/.ssh"
+chown -R root:"${web_user}" "${data_dir}"
 chmod 0770 "${data_dir}" "${data_dir}/staging" \
   "${realtime_dir}" "${backup_dir}"
 chmod 0770 "${data_dir}/.ssh"
@@ -155,7 +144,7 @@ if [[ ! -f "${data_dir}/secret.key" ]]; then
   umask 0027
   head -c 32 /dev/urandom > "${data_dir}/secret.key"
 fi
-chown jbackup:jbackup "${data_dir}/secret.key"
+chown root:"${web_user}" "${data_dir}/secret.key"
 chmod 0640 "${data_dir}/secret.key"
 chmod 0755 "${install_dir}/bin/worker.php"
 
@@ -169,6 +158,7 @@ render_template() {
   JBACKUP_TEMPLATE_BACKUP_DIR="${backup_dir}" \
   JBACKUP_TEMPLATE_LOG_DIR="${log_dir}" \
   JBACKUP_TEMPLATE_URL_PATH="${app_url_path}" \
+  JBACKUP_TEMPLATE_WEB_GROUP="${web_user}" \
   php -r '
     $source = $argv[1];
     $target = $argv[2];
@@ -187,6 +177,7 @@ render_template() {
         "@@BACKUP_DIR@@" => (string) getenv("JBACKUP_TEMPLATE_BACKUP_DIR"),
         "@@LOG_DIR@@" => (string) getenv("JBACKUP_TEMPLATE_LOG_DIR"),
         "@@APP_URL_PATH@@" => (string) getenv("JBACKUP_TEMPLATE_URL_PATH"),
+        "@@WEB_GROUP@@" => (string) getenv("JBACKUP_TEMPLATE_WEB_GROUP"),
     ];
     $rendered = strtr((string) file_get_contents($source), $replacements);
     if (preg_match("/@@[A-Z0-9_]+@@/", $rendered)) {
