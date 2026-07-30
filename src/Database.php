@@ -98,9 +98,22 @@ final class Database
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 include_sys INTEGER NOT NULL DEFAULT 1,
+                archive_mode TEXT NOT NULL DEFAULT 'combined',
+                output_subdirectory TEXT NOT NULL DEFAULT '',
                 enabled INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS source_paths (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id INTEGER NOT NULL REFERENCES database_entries(id)
+                    ON DELETE CASCADE,
+                remote_path TEXT NOT NULL,
+                alias TEXT NOT NULL,
+                position INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(source_id, remote_path),
+                UNIQUE(source_id, alias)
             );
 
             CREATE TABLE IF NOT EXISTS schedules (
@@ -120,6 +133,9 @@ final class Database
                 database_id INTEGER REFERENCES database_entries(id) ON DELETE SET NULL,
                 database_name TEXT NOT NULL,
                 include_sys INTEGER NOT NULL DEFAULT 1,
+                archive_mode TEXT NOT NULL DEFAULT 'combined',
+                output_subdirectory TEXT NOT NULL DEFAULT '',
+                source_paths TEXT NOT NULL DEFAULT '[]',
                 status TEXT NOT NULL,
                 output_path TEXT,
                 size_bytes INTEGER NOT NULL DEFAULT 0,
@@ -134,6 +150,17 @@ final class Database
 
             CREATE INDEX IF NOT EXISTS jobs_queued_at_idx ON jobs(queued_at DESC);
             CREATE INDEX IF NOT EXISTS jobs_status_idx ON jobs(status);
+
+            CREATE TABLE IF NOT EXISTS job_outputs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+                source_alias TEXT,
+                archive_path TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL DEFAULT 0,
+                checksum TEXT,
+                verification TEXT NOT NULL,
+                UNIQUE(job_id, archive_path)
+            );
 
             CREATE TABLE IF NOT EXISTS scheduler_state (
                 key TEXT PRIMARY KEY,
@@ -166,6 +193,48 @@ final class Database
             ON ssh_tasks(status, created_at);
             SQL
         );
+
+        $sourceColumns = array_column(
+            $this->pdo->query('PRAGMA table_info(database_entries)')->fetchAll(),
+            'name'
+        );
+        if (!in_array('archive_mode', $sourceColumns, true)) {
+            $this->pdo->exec(
+                "ALTER TABLE database_entries
+                 ADD COLUMN archive_mode TEXT NOT NULL DEFAULT 'combined'"
+            );
+        }
+        if (!in_array('output_subdirectory', $sourceColumns, true)) {
+            $this->pdo->exec(
+                "ALTER TABLE database_entries
+                 ADD COLUMN output_subdirectory TEXT NOT NULL DEFAULT ''"
+            );
+        }
+
+        $jobColumns = array_column(
+            $this->pdo->query('PRAGMA table_info(jobs)')->fetchAll(),
+            'name'
+        );
+        if (!in_array('archive_mode', $jobColumns, true)) {
+            $this->pdo->exec(
+                "ALTER TABLE jobs
+                 ADD COLUMN archive_mode TEXT NOT NULL DEFAULT 'combined'"
+            );
+        }
+        if (!in_array('source_paths', $jobColumns, true)) {
+            $this->pdo->exec(
+                "ALTER TABLE jobs
+                 ADD COLUMN source_paths TEXT NOT NULL DEFAULT '[]'"
+            );
+        }
+        if (!in_array('output_subdirectory', $jobColumns, true)) {
+            $this->pdo->exec(
+                "ALTER TABLE jobs
+                 ADD COLUMN output_subdirectory TEXT NOT NULL DEFAULT ''"
+            );
+        }
+        $this->migrateLegacySources();
+        $this->migrateLegacyJobs();
 
         $scheduleColumns = array_column(
             $this->pdo->query('PRAGMA table_info(schedules)')->fetchAll(),
@@ -207,6 +276,72 @@ final class Database
         $this->migrateSshTaskTypes();
 
         $this->migrateRuntimePaths();
+    }
+
+    private function migrateLegacySources(): void
+    {
+        $root = (string) (
+            $this->pdo->query(
+                "SELECT value FROM settings WHERE key = 'remote_root'"
+            )->fetchColumn() ?: self::DEFAULT_SETTINGS['remote_root']
+        );
+        $sources = $this->pdo->query(
+            'SELECT id, name, include_sys FROM database_entries'
+        )->fetchAll();
+        $count = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM source_paths WHERE source_id = ?'
+        );
+        $insert = $this->pdo->prepare(
+            'INSERT OR IGNORE INTO source_paths
+             (source_id, remote_path, alias, position) VALUES (?, ?, ?, ?)'
+        );
+        foreach ($sources as $source) {
+            $count->execute([$source['id']]);
+            if ((int) $count->fetchColumn() > 0) {
+                continue;
+            }
+            $names = [(string) $source['name']];
+            if ((bool) $source['include_sys']) {
+                $names[] = $source['name'] . '_sys';
+            }
+            foreach ($names as $position => $name) {
+                $insert->execute([
+                    $source['id'],
+                    rtrim($root, '/') . '/' . $name,
+                    $name,
+                    $position,
+                ]);
+            }
+        }
+    }
+
+    private function migrateLegacyJobs(): void
+    {
+        $rows = $this->pdo->query(
+            "SELECT jobs.id, database_entries.id AS source_id,
+                    database_entries.archive_mode,
+                    database_entries.output_subdirectory
+             FROM jobs
+             JOIN database_entries
+               ON database_entries.id = jobs.database_id
+             WHERE jobs.source_paths = '[]'"
+        )->fetchAll();
+        $update = $this->pdo->prepare(
+            'UPDATE jobs
+             SET archive_mode = ?, output_subdirectory = ?, source_paths = ?
+             WHERE id = ?'
+        );
+        foreach ($rows as $row) {
+            $update->execute([
+                $row['archive_mode'],
+                $row['output_subdirectory'],
+                json_encode(
+                    $this->sourcePaths((int) $row['source_id']),
+                    JSON_THROW_ON_ERROR
+                ),
+                $row['id'],
+            ]);
+        }
     }
 
     private function migrateSshTaskTypes(): void
@@ -359,7 +494,9 @@ final class Database
         $this->pdo->beginTransaction();
         try {
             foreach ([
+                'job_outputs',
                 'jobs',
+                'source_paths',
                 'database_entries',
                 'schedules',
                 'ssh_tasks',
@@ -372,7 +509,10 @@ final class Database
             }
             $this->pdo->exec(
                 "DELETE FROM sqlite_sequence
-                 WHERE name IN ('users', 'database_entries', 'schedules')"
+                 WHERE name IN (
+                    'users', 'database_entries', 'source_paths',
+                    'job_outputs', 'schedules'
+                 )"
             );
             $this->seed();
             $this->pdo->commit();
@@ -449,30 +589,71 @@ final class Database
 
     public static function validateDatabaseName(string $name): string
     {
+        return self::validateSourceAlias($name);
+    }
+
+    public static function validateSourceName(string $name): string
+    {
         $name = trim($name);
-        if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/', $name)) {
+        if (
+            $name === ''
+            || strlen($name) > 128
+            || preg_match('/[\x00-\x1F\x7F\/\\\\]/', $name)
+        ) {
             throw new RuntimeException(
-                'Nama hanya boleh berisi huruf, angka, titik, garis bawah, dan tanda hubung.'
+                'Nama sumber harus berisi 1–128 karakter dan tidak boleh mengandung slash.'
             );
         }
         return $name;
+    }
+
+    public static function validateSourceAlias(string $alias): string
+    {
+        $alias = trim($alias);
+        if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/', $alias)) {
+            throw new RuntimeException(
+                'Alias path hanya boleh berisi huruf, angka, titik, garis bawah, dan tanda hubung.'
+            );
+        }
+        return $alias;
+    }
+
+    public static function validateRemotePath(string $path): string
+    {
+        $path = rtrim(trim($path), '/');
+        if (
+            $path === ''
+            || !str_starts_with($path, '/')
+            || str_contains($path, "\0")
+            || strlen($path) > 2048
+        ) {
+            throw new RuntimeException('Path sumber harus berupa path absolut Linux.');
+        }
+        return $path;
     }
 
     public function databases(bool $enabledOnly = false): array
     {
         $where = $enabledOnly ? 'WHERE enabled = 1' : '';
         $rows = $this->pdo->query(
-            "SELECT id, name, include_sys, enabled, created_at, updated_at
+            "SELECT id, name, include_sys, archive_mode, output_subdirectory,
+                    enabled, created_at, updated_at
              FROM database_entries {$where} ORDER BY name COLLATE NOCASE"
         )->fetchAll();
 
         return array_map([$this, 'normalizeDatabase'], $rows);
     }
 
+    public function sources(bool $enabledOnly = false): array
+    {
+        return $this->databases($enabledOnly);
+    }
+
     public function database(int $id): ?array
     {
         $statement = $this->pdo->prepare(
-            'SELECT id, name, include_sys, enabled, created_at, updated_at
+            'SELECT id, name, include_sys, archive_mode, output_subdirectory,
+                    enabled, created_at, updated_at
              FROM database_entries WHERE id = ?'
         );
         $statement->execute([$id]);
@@ -482,58 +663,47 @@ final class Database
 
     public function createDatabase(array $input): array
     {
-        $name = self::validateDatabaseName((string) ($input['name'] ?? ''));
+        $name = self::validateSourceName((string) ($input['name'] ?? ''));
+        $archiveMode = $this->validateArchiveMode(
+            (string) ($input['archive_mode'] ?? 'combined')
+        );
+        $outputSubdirectory = $this->validateOutputSubdirectory(
+            (string) ($input['output_subdirectory'] ?? '')
+        );
+        $paths = $this->normalizeSourcePaths($input['paths'] ?? []);
         $now = self::now();
         $statement = $this->pdo->prepare(
             <<<'SQL'
-            INSERT INTO database_entries(name, include_sys, enabled, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO database_entries(
+                name, include_sys, archive_mode, output_subdirectory,
+                enabled, created_at, updated_at
+            )
+            VALUES (?, 0, ?, ?, ?, ?, ?)
             SQL
         );
-        $statement->execute([
-            $name,
-            ($input['include_sys'] ?? true) ? 1 : 0,
-            ($input['enabled'] ?? true) ? 1 : 0,
-            $now,
-            $now,
-        ]);
-        return $this->database((int) $this->pdo->lastInsertId());
-    }
-
-    public function importDatabases(string|array $input, bool $includeSys): array
-    {
-        $items = is_array($input)
-            ? $input
-            : preg_split('/[\s,;]+/', $input, -1, PREG_SPLIT_NO_EMPTY);
-        $names = [];
-        foreach ($items as $item) {
-            $names[self::validateDatabaseName((string) $item)] = true;
-        }
-
-        $statement = $this->pdo->prepare(
-            <<<'SQL'
-            INSERT OR IGNORE INTO database_entries
-            (name, include_sys, enabled, created_at, updated_at)
-            VALUES (?, ?, 1, ?, ?)
-            SQL
-        );
-        $inserted = [];
         $this->pdo->beginTransaction();
         try {
-            foreach (array_keys($names) as $name) {
-                $now = self::now();
-                $statement->execute([$name, $includeSys ? 1 : 0, $now, $now]);
-                if ($statement->rowCount() > 0) {
-                    $inserted[] = $name;
-                }
-            }
+            $statement->execute([
+                $name,
+                $archiveMode,
+                $outputSubdirectory,
+                ($input['enabled'] ?? true) ? 1 : 0,
+                $now,
+                $now,
+            ]);
+            $id = (int) $this->pdo->lastInsertId();
+            $this->replaceSourcePaths($id, $paths);
             $this->pdo->commit();
         } catch (\Throwable $error) {
             $this->pdo->rollBack();
             throw $error;
         }
+        return $this->database($id);
+    }
 
-        return ['inserted' => $inserted, 'submitted' => count($names)];
+    public function createSource(array $input): array
+    {
+        return $this->createDatabase($input);
     }
 
     public function updateDatabase(int $id, array $input): ?array
@@ -544,11 +714,16 @@ final class Database
         }
 
         $name = array_key_exists('name', $input)
-            ? self::validateDatabaseName((string) $input['name'])
+            ? self::validateSourceName((string) $input['name'])
             : $current['name'];
-        $includeSys = array_key_exists('include_sys', $input)
-            ? (bool) $input['include_sys']
-            : $current['include_sys'];
+        $archiveMode = array_key_exists('archive_mode', $input)
+            ? $this->validateArchiveMode((string) $input['archive_mode'])
+            : $current['archive_mode'];
+        $outputSubdirectory = array_key_exists('output_subdirectory', $input)
+            ? $this->validateOutputSubdirectory(
+                (string) $input['output_subdirectory']
+            )
+            : $current['output_subdirectory'];
         $enabled = array_key_exists('enabled', $input)
             ? (bool) $input['enabled']
             : $current['enabled'];
@@ -556,18 +731,38 @@ final class Database
         $statement = $this->pdo->prepare(
             <<<'SQL'
             UPDATE database_entries
-            SET name = ?, include_sys = ?, enabled = ?, updated_at = ?
+            SET name = ?, include_sys = 0, archive_mode = ?,
+                output_subdirectory = ?, enabled = ?, updated_at = ?
             WHERE id = ?
             SQL
         );
-        $statement->execute([
-            $name,
-            $includeSys ? 1 : 0,
-            $enabled ? 1 : 0,
-            self::now(),
-            $id,
-        ]);
+        $this->pdo->beginTransaction();
+        try {
+            $statement->execute([
+                $name,
+                $archiveMode,
+                $outputSubdirectory,
+                $enabled ? 1 : 0,
+                self::now(),
+                $id,
+            ]);
+            if (array_key_exists('paths', $input)) {
+                $this->replaceSourcePaths(
+                    $id,
+                    $this->normalizeSourcePaths($input['paths'])
+                );
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $error) {
+            $this->pdo->rollBack();
+            throw $error;
+        }
         return $this->database($id);
+    }
+
+    public function updateSource(int $id, array $input): ?array
+    {
+        return $this->updateDatabase($id, $input);
     }
 
     public function deleteDatabase(int $id): bool
@@ -575,6 +770,110 @@ final class Database
         $statement = $this->pdo->prepare('DELETE FROM database_entries WHERE id = ?');
         $statement->execute([$id]);
         return $statement->rowCount() > 0;
+    }
+
+    public function deleteSource(int $id): bool
+    {
+        return $this->deleteDatabase($id);
+    }
+
+    private function validateArchiveMode(string $mode): string
+    {
+        if (!in_array($mode, ['combined', 'separate'], true)) {
+            throw new RuntimeException('Mode arsip sumber tidak valid.');
+        }
+        return $mode;
+    }
+
+    private function validateOutputSubdirectory(string $directory): string
+    {
+        $directory = trim($directory);
+        if (
+            $directory !== ''
+            && (
+                $directory !== basename($directory)
+                || !preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/', $directory)
+            )
+        ) {
+            throw new RuntimeException('Subfolder hasil tidak valid.');
+        }
+        return $directory;
+    }
+
+    private function normalizeSourcePaths(mixed $input): array
+    {
+        if (is_string($input)) {
+            $input = preg_split('/\R+/', $input, -1, PREG_SPLIT_NO_EMPTY);
+        }
+        if (!is_array($input) || $input === []) {
+            throw new RuntimeException('Minimal satu path sumber harus diisi.');
+        }
+        $paths = [];
+        $aliases = [];
+        foreach ($input as $position => $item) {
+            if (is_string($item)) {
+                $raw = trim($item);
+                $alias = '';
+                $path = $raw;
+                if (str_contains($raw, '=')) {
+                    [$alias, $path] = array_map('trim', explode('=', $raw, 2));
+                }
+            } elseif (is_array($item)) {
+                $path = (string) ($item['path'] ?? $item['remote_path'] ?? '');
+                $alias = (string) ($item['alias'] ?? '');
+            } else {
+                throw new RuntimeException('Format path sumber tidak valid.');
+            }
+            $path = self::validateRemotePath($path);
+            $alias = self::validateSourceAlias(
+                $alias !== '' ? $alias : basename($path)
+            );
+            if (isset($aliases[strtolower($alias)])) {
+                throw new RuntimeException("Alias path duplikat: {$alias}");
+            }
+            $aliases[strtolower($alias)] = true;
+            $paths[] = [
+                'path' => $path,
+                'alias' => $alias,
+                'position' => (int) $position,
+            ];
+        }
+        return $paths;
+    }
+
+    private function replaceSourcePaths(int $sourceId, array $paths): void
+    {
+        $delete = $this->pdo->prepare(
+            'DELETE FROM source_paths WHERE source_id = ?'
+        );
+        $delete->execute([$sourceId]);
+        $insert = $this->pdo->prepare(
+            'INSERT INTO source_paths
+             (source_id, remote_path, alias, position) VALUES (?, ?, ?, ?)'
+        );
+        foreach ($paths as $path) {
+            $insert->execute([
+                $sourceId,
+                $path['path'],
+                $path['alias'],
+                $path['position'],
+            ]);
+        }
+    }
+
+    private function sourcePaths(int $sourceId): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT id, remote_path, alias, position
+             FROM source_paths WHERE source_id = ? ORDER BY position, id'
+        );
+        $statement->execute([$sourceId]);
+        return array_map(static fn (array $row): array => [
+            'id' => (int) $row['id'],
+            'path' => $row['remote_path'],
+            'alias' => $row['alias'],
+            'position' => (int) $row['position'],
+        ], $statement->fetchAll());
     }
 
     public function schedules(): array
@@ -666,14 +965,18 @@ final class Database
             ));
         }
         if ($databases === []) {
-            throw new RuntimeException('Tidak ada database aktif yang dipilih.');
+            throw new RuntimeException('Tidak ada sumber aktif yang dipilih.');
         }
 
         $statement = $this->pdo->prepare(
             <<<'SQL'
             INSERT INTO jobs
-            (id, type, database_id, database_name, include_sys, status, queued_at)
-            VALUES (?, ?, ?, ?, ?, 'queued', ?)
+            (
+                id, type, database_id, database_name, include_sys,
+                archive_mode, output_subdirectory, source_paths,
+                status, queued_at
+            )
+            VALUES (?, ?, ?, ?, 0, ?, ?, ?, 'queued', ?)
             SQL
         );
         $jobs = [];
@@ -686,7 +989,9 @@ final class Database
                     $type,
                     $database['id'],
                     $database['name'],
-                    $database['include_sys'] ? 1 : 0,
+                    $database['archive_mode'],
+                    $database['output_subdirectory'],
+                    json_encode($database['paths'], JSON_THROW_ON_ERROR),
                     self::now(),
                 ]);
                 $jobs[] = $this->job($id);
@@ -991,7 +1296,9 @@ final class Database
         return [
             'id' => (int) $row['id'],
             'name' => $row['name'],
-            'include_sys' => (bool) $row['include_sys'],
+            'archive_mode' => $row['archive_mode'] ?? 'combined',
+            'output_subdirectory' => $row['output_subdirectory'] ?? '',
+            'paths' => $this->sourcePaths((int) $row['id']),
             'enabled' => (bool) $row['enabled'],
             'created_at' => $row['created_at'],
             'updated_at' => $row['updated_at'],
@@ -1005,7 +1312,17 @@ final class Database
             'type' => $row['type'],
             'database_id' => $row['database_id'] === null ? null : (int) $row['database_id'],
             'database_name' => $row['database_name'],
-            'include_sys' => (bool) $row['include_sys'],
+            'source_id' => $row['database_id'] === null ? null : (int) $row['database_id'],
+            'source_name' => $row['database_name'],
+            'archive_mode' => $row['archive_mode'] ?? 'combined',
+            'output_subdirectory' => $row['output_subdirectory'] ?? '',
+            'paths' => json_decode(
+                $row['source_paths'] ?? '[]',
+                true,
+                512,
+                JSON_THROW_ON_ERROR
+            ),
+            'outputs' => $this->jobOutputs($row['id']),
             'status' => $row['status'],
             'output_path' => $row['output_path'],
             'size_bytes' => (int) $row['size_bytes'],
@@ -1017,6 +1334,53 @@ final class Database
             'started_at' => $row['started_at'],
             'finished_at' => $row['finished_at'],
         ];
+    }
+
+    public function replaceJobOutputs(string $jobId, array $outputs): void
+    {
+        $delete = $this->pdo->prepare(
+            'DELETE FROM job_outputs WHERE job_id = ?'
+        );
+        $insert = $this->pdo->prepare(
+            'INSERT INTO job_outputs(
+                job_id, source_alias, archive_path, size_bytes,
+                checksum, verification
+             ) VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $this->pdo->beginTransaction();
+        try {
+            $delete->execute([$jobId]);
+            foreach ($outputs as $output) {
+                $insert->execute([
+                    $jobId,
+                    $output['source_alias'] ?? null,
+                    $output['archive_path'],
+                    (int) ($output['size_bytes'] ?? 0),
+                    $output['checksum'] ?? null,
+                    $output['verification'],
+                ]);
+            }
+            $this->pdo->commit();
+        } catch (\Throwable $error) {
+            $this->pdo->rollBack();
+            throw $error;
+        }
+    }
+
+    private function jobOutputs(string $jobId): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT source_alias, archive_path, size_bytes, checksum, verification
+             FROM job_outputs WHERE job_id = ? ORDER BY id'
+        );
+        $statement->execute([$jobId]);
+        return array_map(static fn (array $row): array => [
+            'source_alias' => $row['source_alias'],
+            'archive_path' => $row['archive_path'],
+            'size_bytes' => (int) $row['size_bytes'],
+            'checksum' => $row['checksum'],
+            'verification' => $row['verification'],
+        ], $statement->fetchAll());
     }
 
     private function normalizeSshTask(array $row): array

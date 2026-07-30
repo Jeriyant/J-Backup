@@ -172,10 +172,55 @@ Saat pertama dibuka:
    lokasi private key otomatis disimpan.
 5. Tombol Connect akan berubah menjadi **Disconnect**.
 6. Gunakan **Tes koneksi** untuk menguji kembali autentikasi private key.
-7. Isi **Sumber & tujuan rsync** pada panel terpisah, kemudian atur tujuan
-   backup pada panel **Lokasi & penamaan**.
-8. Tambahkan database dari menu **Database**.
+7. Atur folder staging lokal pada panel **Staging lokal rsync**, kemudian atur
+   tujuan backup pada panel **Lokasi & penamaan**.
+8. Tambahkan satu atau beberapa **Sumber Backup** dari menu **Sumber**.
 9. Atur jadwal sinkronisasi dan backup.
+
+### Sumber backup universal
+
+J-BACKUP tidak membatasi sumber pada database MySQL. Setiap Sumber Backup
+memiliki nama, mode arsip, dan satu atau beberapa path folder absolut pada
+server remote. Contoh sumber database:
+
+```text
+/var/lib/mysql/cusj_airupas
+/var/lib/mysql/cusj_airupas_sys
+sakep=/var/lib/mysql/cusj_airupas_sakep
+```
+
+Contoh sumber website:
+
+```text
+website=/var/www/example.com
+nginx=/etc/nginx/sites-available/example.com
+uploads=/srv/data/uploads
+```
+
+Format `alias=/path/folder` bersifat opsional. Tanpa alias, nama folder terakhir
+dipakai otomatis. Alias harus unik dalam satu sumber dan digunakan sebagai nama
+folder staging serta nama arsip pada mode terpisah.
+
+Mode **Gabungkan** membuat satu arsip 7z yang berisi seluruh path dalam sumber.
+Mode **Terpisah** membuat satu arsip 7z untuk setiap path. Setiap arsip diuji
+dengan `7z t`, diperiksa kembali pada folder tujuan, lalu dicatat beserta ukuran
+dan checksum SHA-256. Seluruh arsip harus berhasil sebelum job dinyatakan sukses.
+
+Data hasil sinkronisasi disusun terisolasi per sumber:
+
+```text
+Realtime-Data/<id>-<nama-sumber>/<alias>/
+```
+
+Arsip ditempatkan berdasarkan tanggal dan sumber:
+
+```text
+Hasil-Backup/<tahun>/<bulan>/<tanggal>/<nama-sumber>/
+```
+
+Instalasi lama dimigrasikan otomatis: nama database lama menjadi satu Sumber
+Backup, sementara folder utama dan pasangan `_sys` lama diubah menjadi daftar
+path eksplisit. Arsip hasil backup yang sudah ada tetap dipertahankan.
 
 Menu **Dashboard** menampilkan status worker, kapasitas tujuan backup, aktivitas
 terbaru, dan status koneksi SSH. Status **Terhubung** hanya tampil jika target
@@ -250,7 +295,7 @@ Reset akan menghapus:
 
 - akun administrator;
 - seluruh konfigurasi aplikasi;
-- daftar database dan jadwal;
+- daftar sumber backup, path, dan jadwal;
 - antrean serta riwayat pekerjaan;
 - status koneksi, tugas SSH, dan password SSH terenkripsi;
 - seluruh isi `storage/.ssh`, termasuk private key, public key, `known_hosts`,

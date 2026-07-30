@@ -694,31 +694,46 @@ SH;
         }
 
         $staging = $this->absoluteDirectory($settings['staging_dir'], true);
-        $remoteRoot = $this->absolutePath($settings['remote_root']);
         $keyPath = $this->absolutePath($settings['ssh_key_path']);
-
-        $names = [$job['database_name']];
-        if ($job['include_sys']) {
-            $names[] = $job['database_name'] . '_sys';
+        $paths = $this->jobSourcePaths($job);
+        $sourceDirectory = $staging . '/' . $this->sourceStorageKey($job);
+        if (
+            !is_dir($sourceDirectory)
+            && !mkdir($sourceDirectory, 0770, true)
+            && !is_dir($sourceDirectory)
+        ) {
+            throw new RuntimeException('Folder staging sumber tidak dapat dibuat.');
         }
 
-        foreach ($names as $name) {
-            Database::validateDatabaseName($name);
-            $destination = $staging . '/' . $name;
+        foreach ($paths as $path) {
+            $alias = Database::validateSourceAlias((string) $path['alias']);
+            $remotePath = Database::validateRemotePath((string) $path['path']);
+            $destination = $sourceDirectory . '/' . $alias;
             $source = sprintf(
-                '%s@%s:%s/%s',
+                '%s@%s:%s/',
                 $user,
                 $host,
-                rtrim($remoteRoot, '/'),
-                $name
+                $remotePath
             );
-            $this->appendLog($job['id'], "Menyalin {$source} ke {$staging}\n");
+            $this->appendLog(
+                $job['id'],
+                "Menyalin {$remotePath} sebagai {$alias} ke {$destination}\n"
+            );
 
             if ($this->simulate) {
                 if (!is_dir($destination)) {
                     mkdir($destination, 0770, true);
                 }
             } else {
+                if (
+                    !is_dir($destination)
+                    && !mkdir($destination, 0770, true)
+                    && !is_dir($destination)
+                ) {
+                    throw new RuntimeException(
+                        "Folder tujuan sinkronisasi tidak dapat dibuat: {$destination}"
+                    );
+                }
                 $ssh = sprintf(
                     'ssh -p %d -i %s',
                     $port,
@@ -729,10 +744,12 @@ SH;
                         $settings['rsync_binary'],
                         '-rzh',
                         '--partial',
+                        '--delete',
+                        '--protect-args',
                         '-e',
                         $ssh,
                         $source,
-                        $staging,
+                        $destination . '/',
                     ],
                     $job['id']
                 );
@@ -750,7 +767,7 @@ SH;
         }
 
         return [
-            'output_path' => $staging,
+            'output_path' => $sourceDirectory,
             'verification' => 'destination-present',
         ];
     }
@@ -773,27 +790,30 @@ SH;
             throw new RuntimeException('Ruang kosong disk berada di bawah batas minimum.');
         }
 
-        $sourceNames = [$job['database_name']];
-        if ($job['include_sys']) {
-            $sourceNames[] = $job['database_name'] . '_sys';
-        }
+        $paths = $this->jobSourcePaths($job);
+        $sourceDirectory = $staging . '/' . $this->sourceStorageKey($job);
         $sources = [];
-        foreach ($sourceNames as $sourceName) {
-            Database::validateDatabaseName($sourceName);
-            $source = $staging . '/' . $sourceName;
+        foreach ($paths as $path) {
+            $alias = Database::validateSourceAlias((string) $path['alias']);
+            $source = $sourceDirectory . '/' . $alias;
             if (!is_dir($source)) {
                 throw new RuntimeException("Folder staging tidak ditemukan: {$source}");
             }
-            $sources[] = $source;
+            $sources[] = ['alias' => $alias, 'path' => $source];
         }
 
         $now = new DateTimeImmutable();
+        $outputSubdirectory = trim((string) ($job['output_subdirectory'] ?? ''));
+        $sourceOutput = $outputSubdirectory !== ''
+            ? Database::validateSourceAlias($outputSubdirectory)
+            : $this->safeArchiveToken($job['source_name']);
         $destinationDirectory = sprintf(
-            '%s/%s/%s/%s',
+            '%s/%s/%s/%s/%s',
             $backupRoot,
             $now->format('Y'),
             $now->format('m'),
-            $now->format('d')
+            $now->format('d'),
+            $sourceOutput
         );
         if (
             !is_dir($destinationDirectory)
@@ -803,9 +823,60 @@ SH;
             throw new RuntimeException('Folder tanggal tujuan tidak dapat dibuat.');
         }
 
+        $outputs = [];
+        if (($job['archive_mode'] ?? 'combined') === 'separate') {
+            foreach ($sources as $source) {
+                $outputs[] = $this->createArchive(
+                    $job,
+                    [$source['alias']],
+                    $sourceDirectory,
+                    $destinationDirectory,
+                    $job['source_name'] . '-' . $source['alias'],
+                    $source['alias'],
+                    $now,
+                    $settings,
+                    $compression
+                );
+            }
+        } else {
+            $outputs[] = $this->createArchive(
+                $job,
+                array_column($sources, 'alias'),
+                $sourceDirectory,
+                $destinationDirectory,
+                $job['source_name'],
+                null,
+                $now,
+                $settings,
+                $compression
+            );
+        }
+        $this->database->replaceJobOutputs($job['id'], $outputs);
+        $totalSize = array_sum(array_column($outputs, 'size_bytes'));
+        return [
+            'output_path' => count($outputs) === 1
+                ? $outputs[0]['archive_path']
+                : $destinationDirectory,
+            'size_bytes' => $totalSize,
+            'verification' => 'destination-present-and-readable',
+            'checksum' => count($outputs) === 1 ? $outputs[0]['checksum'] : null,
+        ];
+    }
+
+    private function createArchive(
+        array $job,
+        array $sources,
+        string $workingDirectory,
+        string $destinationDirectory,
+        string $archiveName,
+        ?string $sourceAlias,
+        DateTimeImmutable $now,
+        array $settings,
+        int $compression
+    ): array {
         $filename = $this->archiveName(
             $settings['filename_template'],
-            $job['database_name'],
+            $archiveName,
             $now
         );
         $finalPath = $destinationDirectory . '/' . $filename;
@@ -813,37 +884,32 @@ SH;
         if (is_file($partialPath)) {
             unlink($partialPath);
         }
-
         try {
             $this->appendLog($job['id'], "Membuat arsip: {$partialPath}\n");
             if ($this->simulate) {
                 file_put_contents(
                     $partialPath,
-                    "Simulated archive for {$job['database_name']}\n"
+                    "Simulated archive for {$archiveName}\n"
                 );
             } else {
                 $this->runCommand(
-                    array_merge(
-                        [
-                            $settings['seven_zip_binary'],
-                            'a',
-                            '-t7z',
-                            '-mx=' . $compression,
-                            $partialPath,
-                        ],
-                        $sources
-                    ),
-                    $job['id']
+                    array_merge([
+                        $settings['seven_zip_binary'],
+                        'a',
+                        '-t7z',
+                        '-mx=' . $compression,
+                        $partialPath,
+                    ], $sources),
+                    $job['id'],
+                    $workingDirectory
                 );
             }
-
             clearstatcache(true, $partialPath);
             if (!is_file($partialPath) || filesize($partialPath) <= 0) {
                 throw new RuntimeException(
                     'File backup tidak ditemukan atau kosong di folder tujuan.'
                 );
             }
-
             if (!$this->simulate) {
                 $this->appendLog($job['id'], "Menguji arsip dari folder tujuan.\n");
                 $this->runCommand(
@@ -851,7 +917,6 @@ SH;
                     $job['id']
                 );
             }
-
             if (!rename($partialPath, $finalPath)) {
                 throw new RuntimeException('File sementara tidak dapat difinalisasi.');
             }
@@ -859,7 +924,6 @@ SH;
             if (!is_file($finalPath) || filesize($finalPath) <= 0) {
                 throw new RuntimeException('File final tidak ditemukan di folder tujuan.');
             }
-
             $checksum = hash_file('sha256', $finalPath);
             if ($checksum === false) {
                 throw new RuntimeException('Checksum file final tidak dapat dibuat.');
@@ -868,10 +932,10 @@ SH;
                 $job['id'],
                 "Terverifikasi di folder tujuan: {$finalPath}\nSHA-256: {$checksum}\n"
             );
-
             return [
-                'output_path' => $finalPath,
-                'size_bytes' => filesize($finalPath),
+                'source_alias' => $sourceAlias,
+                'archive_path' => $finalPath,
+                'size_bytes' => (int) filesize($finalPath),
                 'verification' => 'destination-present-and-readable',
                 'checksum' => $checksum,
             ];
@@ -883,7 +947,11 @@ SH;
         }
     }
 
-    private function runCommand(array $command, string $jobId): void
+    private function runCommand(
+        array $command,
+        string $jobId,
+        ?string $workingDirectory = null
+    ): void
     {
         $descriptors = [
             0 => ['pipe', 'r'],
@@ -894,7 +962,7 @@ SH;
             $command,
             $descriptors,
             $pipes,
-            null,
+            $workingDirectory,
             null,
             ['bypass_shell' => true]
         );
@@ -969,7 +1037,7 @@ SH;
         string $databaseName,
         DateTimeImmutable $date
     ): string {
-        Database::validateDatabaseName($databaseName);
+        $databaseName = $this->safeArchiveToken($databaseName);
         $rendered = strtr($template ?: '{date}_{time}-{name}.7z', [
             '{name}' => $databaseName,
             '{date}' => $date->format('Y-m-d'),
@@ -984,6 +1052,40 @@ SH;
         return str_ends_with(strtolower($rendered), '.7z')
             ? $rendered
             : $rendered . '.7z';
+    }
+
+    private function jobSourcePaths(array $job): array
+    {
+        $paths = (array) ($job['paths'] ?? []);
+        if ($paths === [] && ($job['source_id'] ?? null) !== null) {
+            $source = $this->database->database((int) $job['source_id']);
+            $paths = (array) ($source['paths'] ?? []);
+        }
+        if ($paths === []) {
+            throw new RuntimeException('Sumber tidak memiliki path untuk diproses.');
+        }
+        return $paths;
+    }
+
+    private function sourceStorageKey(array $job): string
+    {
+        $prefix = ($job['source_id'] ?? null) !== null
+            ? (string) $job['source_id'] . '-'
+            : '';
+        return $prefix . $this->safeArchiveToken(
+            (string) ($job['source_name'] ?? $job['database_name'])
+        );
+    }
+
+    private function safeArchiveToken(string $value): string
+    {
+        $value = trim($value);
+        $value = preg_replace('/[^A-Za-z0-9_.-]+/', '-', $value) ?? '';
+        $value = trim($value, '.-_');
+        if ($value === '') {
+            throw new RuntimeException('Nama sumber tidak dapat digunakan untuk output.');
+        }
+        return substr($value, 0, 128);
     }
 
     private function absolutePath(string $path): string

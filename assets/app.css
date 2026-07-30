@@ -518,7 +518,7 @@ td small { overflow: hidden; max-width: 320px; margin-top: 4px; color: var(--mut
 .search input { border: 0; background: transparent; }
 .database-row {
     display: grid;
-    grid-template-columns: 22px 40px minmax(210px,1fr) auto auto 34px;
+    grid-template-columns: 22px 40px minmax(210px,1fr) auto auto 34px 34px;
     align-items: center;
     gap: 13px;
     border-bottom: 1px solid var(--line);

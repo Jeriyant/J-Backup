@@ -21,6 +21,10 @@ if (!preg_match('/^[A-Za-z0-9.\-:\[\]]+$/', $host)) {
 }
 $basePath = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/')), '/');
 $ogImage = sprintf('%s://%s%s/og.png', $scheme, $host, $basePath);
+$assetVersion = (string) max(
+    (int) @filemtime(__DIR__ . '/assets/app.css'),
+    (int) @filemtime(__DIR__ . '/assets/app.js')
+);
 ?>
 <!doctype html>
 <html lang="id">
@@ -41,7 +45,7 @@ $ogImage = sprintf('%s://%s%s/og.png', $scheme, $host, $basePath);
     <link rel="preload" href="assets/fonts/Sora-Variable.ttf" as="font" type="font/ttf" crossorigin>
     <link rel="preload" href="assets/fonts/Oxanium-Variable.ttf" as="font" type="font/ttf" crossorigin>
     <link rel="preload" href="assets/fonts/JetBrainsMono-Variable.ttf" as="font" type="font/ttf" crossorigin>
-    <link rel="stylesheet" href="assets/app.css">
+    <link rel="stylesheet" href="assets/app.css?v=<?= $assetVersion ?>">
 </head>
 <body>
     <div id="app" aria-live="polite">
@@ -52,6 +56,6 @@ $ogImage = sprintf('%s://%s%s/og.png', $scheme, $host, $basePath);
     </div>
     <div id="toast" class="toast" hidden></div>
     <dialog id="modal" class="modal"></dialog>
-    <script src="assets/app.js" defer></script>
+    <script src="assets/app.js?v=<?= $assetVersion ?>" defer></script>
 </body>
 </html>

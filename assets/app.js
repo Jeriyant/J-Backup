@@ -7,7 +7,7 @@ const app = document.querySelector("#app");
     const days = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
     const navItems = [
         ["overview", "⌂", "Dashboard"],
-        ["databases", "▦", "Database"],
+        ["sources", "▦", "Sumber"],
         ["history", "↺", "Riwayat"],
         ["schedules", "◷", "Jadwal"],
         ["storage", "▤", "Penyimpanan"],
@@ -236,7 +236,7 @@ const app = document.querySelector("#app");
     }
 
     function renderView() {
-        if (state.tab === "databases") return renderDatabases();
+        if (state.tab === "sources") return renderSources();
         if (state.tab === "history") return renderHistory();
         if (state.tab === "schedules") return renderSchedules();
         if (state.tab === "storage") return renderStorage();
@@ -259,7 +259,7 @@ const app = document.querySelector("#app");
             ? `${active.type === "sync" ? "Sinkronisasi" : "Backup"} sedang berjalan`
             : failures ? "Ada pekerjaan yang perlu diperiksa" : "Semua sistem berjalan normal";
         const detail = active
-            ? `${active.database_name} sedang diproses. ${d.queue_count} pekerjaan menunggu.`
+            ? `${active.source_name} sedang diproses. ${d.queue_count} pekerjaan menunggu.`
             : next ? `${next.type === "sync" ? "Sinkronisasi" : "Backup"} aktif: ${scheduleText(next).toLowerCase()}.`
                 : "Aktifkan jadwal atau jalankan pekerjaan secara manual.";
         return `
@@ -269,7 +269,7 @@ const app = document.querySelector("#app");
                     <div class="health"><span>${active ? "RUN" : failures ? "!" : "OK"}</span></div>
                 </article>
                 <div class="metrics">
-                    <article class="metric"><p>Database aktif</p><strong>${d.databases.filter((item) => item.enabled).length}</strong><small>dari ${d.databases.length} terdaftar</small></article>
+                    <article class="metric"><p>Sumber aktif</p><strong>${d.sources.filter((item) => item.enabled).length}</strong><small>dari ${d.sources.length} terdaftar</small></article>
                     <article class="metric"><p>Job berhasil</p><strong>${successes}</strong><small>dari ${d.jobs.length} riwayat terakhir</small></article>
                     <article class="metric"><p>Ruang tersedia</p><strong>${bytes(d.disk.free)}</strong><small>${d.disk.used_percent}% disk terpakai</small></article>
                 </div>
@@ -309,19 +309,19 @@ const app = document.querySelector("#app");
             </div>`;
     }
 
-    function renderDatabases() {
+    function renderSources() {
         const d = state.dashboard;
-        const filtered = d.databases.filter((item) => item.name.toLowerCase().includes(state.query.toLowerCase()));
+        const filtered = d.sources.filter((item) => item.name.toLowerCase().includes(state.query.toLowerCase()));
         return `
             <article class="panel full">
                 <div class="panel-heading">
-                    <div><p class="eyebrow">SUMBER DATA</p><h2>Daftar database</h2>
-                        <p class="muted">Semua nama dimasukkan dari aplikasi; tidak ada daftar bawaan.</p></div>
-                    <div class="toolbar"><button class="button ghost" data-action="import"><span>⇩</span>Impor daftar</button>
-                        <button class="button primary" data-action="add"><span>＋</span>Tambah database</button></div>
+                    <div><p class="eyebrow">SUMBER BACKUP</p><h2>Daftar sumber</h2>
+                        <p class="muted">Setiap sumber dapat berisi satu atau banyak path folder remote.</p></div>
+                    <div class="toolbar">
+                        <button class="button primary" data-action="add"><span>＋</span>Tambah sumber</button></div>
                 </div>
                 <div class="tools">
-                    <label class="search"><input id="database-search" value="${escapeHtml(state.query)}" placeholder="Cari nama database…" aria-label="Cari database"></label>
+                    <label class="search"><input id="source-search" value="${escapeHtml(state.query)}" placeholder="Cari sumber…" aria-label="Cari sumber"></label>
                     <span>${state.selected.size} dipilih</span>
                     <button class="text-button" data-action="select-all">${state.selected.size === filtered.length && filtered.length ? "Batalkan pilihan" : "Pilih semua"}</button>
                 </div>
@@ -329,16 +329,17 @@ const app = document.querySelector("#app");
                     ${filtered.map((item) => `
                         <article class="database-row ${item.enabled ? "" : "off"}">
                             <input type="checkbox" data-select-id="${item.id}" ${state.selected.has(item.id) ? "checked" : ""} aria-label="Pilih ${escapeHtml(item.name)}">
-                            <div class="database-icon">DB</div>
+                            <div class="database-icon">DIR</div>
                             <div class="database-copy"><strong>${escapeHtml(item.name)}</strong>
-                                <small>${escapeHtml(item.include_sys ? `${item.name} + ${item.name}_sys` : item.name)}</small></div>
-                            <span class="tag">${item.enabled ? "Aktif" : "Nonaktif"}</span>
+                                <small>${item.paths.map((path) => escapeHtml(path.path)).join(" · ")}</small></div>
+                            <span class="tag">${item.archive_mode === "separate" ? "Terpisah" : "Gabungkan"}</span>
                             <label class="switch"><input type="checkbox" data-toggle-id="${item.id}" ${item.enabled ? "checked" : ""}><span></span></label>
+                            <button class="row-button" data-edit-id="${item.id}" aria-label="Edit ${escapeHtml(item.name)}">✎</button>
                             <button class="row-button" data-delete-id="${item.id}" aria-label="Hapus ${escapeHtml(item.name)}">×</button>
-                        </article>`).join("") || `<div class="empty"><strong>Belum ada database</strong>Tambahkan satu nama atau impor banyak nama sekaligus.</div>`}
+                        </article>`).join("") || `<div class="empty"><strong>Belum ada sumber</strong>Tambahkan nama dan satu atau beberapa path folder remote.</div>`}
                 </div>
                 ${state.selected.size ? `
-                    <div class="selection-bar"><strong>${state.selected.size} database dipilih</strong><span>Jalankan hanya untuk pilihan ini.</span>
+                    <div class="selection-bar"><strong>${state.selected.size} sumber dipilih</strong><span>Jalankan hanya untuk pilihan ini.</span>
                         <button class="button ghost" data-run="sync"><span>↕</span>Sinkronkan</button>
                         <button class="button primary" data-run="backup"><span>7Z</span>Buat backup</button></div>` : ""}
             </article>`;
@@ -352,9 +353,9 @@ const app = document.querySelector("#app");
 
     function jobTable(jobs) {
         if (!jobs.length) return `<div class="empty"><strong>Belum ada pekerjaan</strong>Riwayat akan muncul di sini.</div>`;
-        return `<div class="table-wrap"><table><thead><tr><th>Database</th><th>Proses</th><th>Status</th><th>Ukuran</th><th>Waktu</th><th></th></tr></thead>
+        return `<div class="table-wrap"><table><thead><tr><th>Sumber</th><th>Proses</th><th>Status</th><th>Ukuran</th><th>Waktu</th><th></th></tr></thead>
             <tbody>${jobs.map((job) => `<tr>
-                <td><strong>${escapeHtml(job.database_name)}</strong><small>${escapeHtml(job.output_path || job.error || "Menunggu proses")}</small></td>
+                <td><strong>${escapeHtml(job.source_name)}</strong><small>${escapeHtml(job.output_path || job.error || "Menunggu proses")}</small></td>
                 <td>${job.type === "sync" ? "Sinkronisasi" : "Backup 7z"}</td>
                 <td><span class="status status-${escapeHtml(job.status)}">${statusText(job.status)}</span></td>
                 <td>${job.size_bytes ? bytes(job.size_bytes) : "—"}</td><td>${dateTime(job.started_at || job.queued_at)}</td>
@@ -517,10 +518,8 @@ const app = document.querySelector("#app");
                     </div>
                 </div>
             </section>
-            <section class="panel"><div class="panel-heading"><div><p class="eyebrow">DATA SINKRONISASI</p><h2>Sumber & tujuan rsync</h2></div></div>
+            <section class="panel"><div class="panel-heading"><div><p class="eyebrow">DATA SINKRONISASI</p><h2>Staging lokal rsync</h2></div></div>
                 <div class="form-grid">
-                    <label class="span-2">Root database remote<input name="remote_root" value="${escapeHtml(s.remote_root)}">
-                        <small>Folder induk database pada server sumber.</small></label>
                     <label class="span-2">Folder tujuan sinkronisasi<input name="staging_dir" value="${escapeHtml(s.staging_dir)}">
                         <small>Data rsync terbaru disimpan di sini sebelum dibuat menjadi backup.</small></label>
                 </div>
@@ -542,7 +541,7 @@ const app = document.querySelector("#app");
                 <div>
                     <p class="eyebrow">ZONA BERBAHAYA</p>
                     <h2>Reset Database</h2>
-                    <p>Menghapus akun administrator, konfigurasi, daftar database, jadwal, riwayat, antrean, password SSH, dan seluruh file key SSH lokal. File hasil backup tidak dihapus.</p>
+                    <p>Menghapus akun administrator, konfigurasi, daftar sumber, jadwal, riwayat, antrean, password SSH, dan seluruh file key SSH lokal. File hasil backup tidak dihapus.</p>
                 </div>
                 <button class="button danger" type="button" data-action="reset-database">
                     <span>↺</span>Reset Database
@@ -551,29 +550,31 @@ const app = document.querySelector("#app");
         </form>`;
     }
 
-    function databaseDialog() {
-        showModal(`<p class="eyebrow">DATABASE BARU</p><h2>Tambahkan sumber backup</h2>
-            <p class="muted">Nama digunakan untuk folder remote, staging, dan file output.</p>
-            <form class="form" data-form="database-add">
-                <label>Nama database<input name="name" placeholder="cusj_airupas" required></label>
-                <label><span><input name="include_sys" type="checkbox" checked> Sertakan folder pasangan _sys</span></label>
-                <button class="button primary wide action-add-dialog"><span>＋</span>Tambahkan database</button>
-            </form>`);
-    }
-
-    function importDialog() {
-        showModal(`<p class="eyebrow">IMPOR MASSAL</p><h2>Tempel daftar database</h2>
-            <p class="muted">Pisahkan setiap nama dengan baris baru, koma, atau spasi.</p>
-            <form class="form" data-form="database-import">
-                <label>Daftar nama<textarea name="names" rows="8" placeholder="cusj_airupas&#10;cusj_anjungan&#10;cusj_badau" required></textarea></label>
-                <label><span><input name="include_sys" type="checkbox" checked> Sertakan folder pasangan _sys</span></label>
-                <button class="button primary wide action-import-dialog"><span>⇩</span>Impor daftar</button>
+    function sourceDialog(source = null) {
+        const paths = source?.paths?.map((item) =>
+            item.alias === item.path.split("/").filter(Boolean).at(-1)
+                ? item.path
+                : `${item.alias}=${item.path}`
+        ).join("\n") || "";
+        showModal(`<p class="eyebrow">${source ? "EDIT SUMBER" : "SUMBER BARU"}</p><h2>${source ? "Perbarui sumber backup" : "Tambahkan sumber backup"}</h2>
+            <p class="muted">Masukkan satu path folder remote per baris. Alias opsional dapat ditulis sebagai <code>alias=/path/folder</code>.</p>
+            <form class="form" data-form="${source ? "source-edit" : "source-add"}">
+                ${source ? `<input type="hidden" name="id" value="${source.id}">` : ""}
+                <label>Nama sumber<input name="name" value="${escapeHtml(source?.name || "")}" placeholder="CUSJ Airupas" maxlength="128" required></label>
+                <label>Mode arsip<select name="archive_mode">
+                    <option value="combined" ${source?.archive_mode === "separate" ? "" : "selected"}>Gabungkan menjadi satu file 7z</option>
+                    <option value="separate" ${source?.archive_mode === "separate" ? "selected" : ""}>Satu file 7z untuk setiap path</option>
+                </select></label>
+                <label>Subfolder hasil (opsional)<input name="output_subdirectory" value="${escapeHtml(source?.output_subdirectory || "")}" placeholder="cusj-airupas"></label>
+                <label>Path sumber<textarea name="paths" rows="8" placeholder="/var/lib/mysql/cusj_airupas&#10;/var/lib/mysql/cusj_airupas_sys&#10;sakep=/var/lib/mysql/cusj_airupas_sakep" required>${escapeHtml(paths)}</textarea>
+                    <small>Folder dapat berasal dari database, website, konfigurasi, dokumen, atau direktori lainnya.</small></label>
+                <button class="button primary wide action-add-dialog"><span>${source ? "✓" : "＋"}</span>${source ? "Simpan perubahan" : "Tambahkan sumber"}</button>
             </form>`);
     }
 
     function manualDialog() {
         showModal(`<p class="eyebrow">EKSEKUSI MANUAL</p><h2>Jalankan pekerjaan sekarang</h2>
-            <p class="muted">${state.selected.size ? `${state.selected.size} database terpilih akan diproses.` : "Semua database aktif akan diproses berurutan."}</p>
+            <p class="muted">${state.selected.size ? `${state.selected.size} sumber terpilih akan diproses.` : "Semua sumber aktif akan diproses berurutan."}</p>
             <div class="choices"><button class="choice" data-run="sync"><i>↕</i><span><strong>Sinkronisasi</strong><small>Tarik folder remote ke staging</small></span></button>
                 <button class="choice" data-run="backup"><i>7Z</i><span><strong>Buat backup</strong><small>Kompres & verifikasi di tujuan</small></span></button></div>`);
     }
@@ -602,10 +603,13 @@ const app = document.querySelector("#app");
     function jobDialog(id) {
         const job = state.dashboard.jobs.find((item) => item.id === id);
         if (!job) return;
-        showModal(`<p class="eyebrow">DETAIL PEKERJAAN</p><h2>${escapeHtml(job.database_name)}</h2>
+        showModal(`<p class="eyebrow">DETAIL PEKERJAAN</p><h2>${escapeHtml(job.source_name)}</h2>
             <div class="job-meta"><span class="status status-${escapeHtml(job.status)}">${statusText(job.status)}</span>
                 <span>${job.type === "sync" ? "Sinkronisasi" : "Backup 7z"}</span><span>${dateTime(job.queued_at)}</span></div>
             ${job.output_path ? `<p class="path">${escapeHtml(job.output_path)}</p>` : ""}
+            ${job.outputs?.length ? `<div class="job-outputs">${job.outputs.map((output) => `
+                <div class="detail-line"><span>${escapeHtml(output.source_alias || "Arsip gabungan")}</span>
+                    <code>${escapeHtml(output.archive_path)}</code></div>`).join("")}</div>` : ""}
             ${job.error ? `<p class="error-box">${escapeHtml(job.error)}</p>` : ""}
             <div class="detail-line"><span>Verifikasi tujuan</span><strong>${escapeHtml(job.verification || "Belum tersedia")}</strong></div>
             ${job.checksum ? `<div class="detail-line"><span>SHA-256</span><code>${escapeHtml(job.checksum)}</code></div>` : ""}
@@ -616,7 +620,7 @@ const app = document.querySelector("#app");
     async function startJobs(type) {
         const result = await api("jobs_create", {
             method: "POST",
-            body: { type, database_ids: [...state.selected] },
+            body: { type, source_ids: [...state.selected] },
         });
         closeModal();
         toast(`${result.jobs.length} pekerjaan masuk antrean.`);
@@ -805,24 +809,29 @@ const app = document.querySelector("#app");
                 state.dashboard = null;
                 state.selected.clear();
                 await boot();
-            } else if (target.dataset.action === "add") databaseDialog();
-            else if (target.dataset.action === "import") importDialog();
+            } else if (target.dataset.action === "add") sourceDialog();
             else if (target.dataset.action === "manual") manualDialog();
             else if (target.dataset.action === "close-modal") closeModal();
             else if (target.dataset.action === "select-all") {
-                const filtered = state.dashboard.databases.filter((item) => item.name.toLowerCase().includes(state.query.toLowerCase()));
+                const filtered = state.dashboard.sources.filter((item) => item.name.toLowerCase().includes(state.query.toLowerCase()));
                 state.selected = state.selected.size === filtered.length
                     ? new Set()
                     : new Set(filtered.map((item) => item.id));
                 renderApp();
             } else if (target.dataset.run) await startJobs(target.dataset.run);
+            else if (target.dataset.editId) {
+                const source = state.dashboard.sources.find(
+                    (item) => item.id === Number(target.dataset.editId)
+                );
+                if (source) sourceDialog(source);
+            }
             else if (target.dataset.deleteId) {
                 const id = Number(target.dataset.deleteId);
-                const item = state.dashboard.databases.find((database) => database.id === id);
+                const item = state.dashboard.sources.find((source) => source.id === id);
                 if (confirm(`Hapus ${item.name} dari daftar?`)) {
-                    await api("database_delete", { method: "POST", body: { id } });
+                    await api("source_delete", { method: "POST", body: { id } });
                     state.selected.delete(id);
-                    toast("Database dihapus.");
+                    toast("Sumber dihapus.");
                     await loadDashboard();
                 }
             } else if (target.dataset.jobId) jobDialog(target.dataset.jobId);
@@ -886,7 +895,7 @@ const app = document.querySelector("#app");
                 target.checked ? state.selected.add(id) : state.selected.delete(id);
                 renderApp();
             } else if (target.dataset.toggleId) {
-                await api("database_update", {
+                await api("source_update", {
                     method: "POST",
                     body: { id: Number(target.dataset.toggleId), enabled: target.checked },
                 });
@@ -919,11 +928,11 @@ const app = document.querySelector("#app");
     });
 
     document.addEventListener("input", (event) => {
-        if (event.target.id === "database-search") {
+        if (event.target.id === "source-search") {
             state.query = event.target.value;
             const cursor = event.target.selectionStart;
             renderApp();
-            const next = document.querySelector("#database-search");
+            const next = document.querySelector("#source-search");
             next?.focus();
             next?.setSelectionRange(cursor, cursor);
         } else if (event.target.id === "storage-search") {
@@ -952,17 +961,19 @@ const app = document.querySelector("#app");
                     body: data,
                 });
                 await boot();
-            } else if (kind === "database-add") {
-                data.include_sys = form.elements.include_sys.checked;
-                await api("database_create", { method: "POST", body: data });
+            } else if (kind === "source-add" || kind === "source-edit") {
+                data.paths = String(data.paths || "")
+                    .split(/\r?\n/)
+                    .map((path) => path.trim())
+                    .filter(Boolean);
+                await api(kind === "source-edit" ? "source_update" : "source_create", {
+                    method: "POST",
+                    body: data,
+                });
                 closeModal();
-                toast("Database berhasil ditambahkan.");
-                await loadDashboard();
-            } else if (kind === "database-import") {
-                data.include_sys = form.elements.include_sys.checked;
-                const result = await api("database_import", { method: "POST", body: data });
-                closeModal();
-                toast(`${result.result.inserted.length} database berhasil diimpor.`);
+                toast(kind === "source-edit"
+                    ? "Sumber berhasil diperbarui."
+                    : "Sumber berhasil ditambahkan.");
                 await loadDashboard();
             } else if (kind === "settings") {
                 await api("settings_update", { method: "POST", body: data });

@@ -19,7 +19,7 @@ $auth = $container['auth'];
 /** @var \JBackup\SecretStore $secretStore */
 $secretStore = $container['secret_store'];
 
-const JBACKUP_VERSION = '0.1.0';
+const JBACKUP_VERSION = '0.2.0';
 
 function input(): array
 {
@@ -451,7 +451,7 @@ try {
             'version' => JBACKUP_VERSION,
             'user' => ['username' => $_SESSION['username']],
             'settings' => $settings,
-            'databases' => $database->databases(),
+            'sources' => $database->sources(),
             'schedules' => $database->schedules(),
             'jobs' => $database->jobs(150),
             'disk' => diskInfo($settings['backup_dir']),
@@ -549,38 +549,27 @@ try {
         ], 201);
     }
 
-    if ($action === 'database_create') {
+    if ($action === 'source_create' || $action === 'database_create') {
         requireMethod('POST');
-        respond(['database' => $database->createDatabase(input())], 201);
+        respond(['source' => $database->createSource(input())], 201);
     }
 
-    if ($action === 'database_import') {
-        requireMethod('POST');
-        $payload = input();
-        respond([
-            'result' => $database->importDatabases(
-                $payload['names'] ?? '',
-                (bool) ($payload['include_sys'] ?? true)
-            ),
-        ], 201);
-    }
-
-    if ($action === 'database_update') {
+    if ($action === 'source_update' || $action === 'database_update') {
         requireMethod('POST');
         $payload = input();
         $id = (int) ($payload['id'] ?? 0);
-        $databaseRow = $database->updateDatabase($id, $payload);
-        if (!$databaseRow) {
-            throw new HttpException('Database tidak ditemukan.', 404);
+        $source = $database->updateSource($id, $payload);
+        if (!$source) {
+            throw new HttpException('Sumber tidak ditemukan.', 404);
         }
-        respond(['database' => $databaseRow]);
+        respond(['source' => $source]);
     }
 
-    if ($action === 'database_delete') {
+    if ($action === 'source_delete' || $action === 'database_delete') {
         requireMethod('POST');
         $payload = input();
-        if (!$database->deleteDatabase((int) ($payload['id'] ?? 0))) {
-            throw new HttpException('Database tidak ditemukan.', 404);
+        if (!$database->deleteSource((int) ($payload['id'] ?? 0))) {
+            throw new HttpException('Sumber tidak ditemukan.', 404);
         }
         respond(['ok' => true]);
     }
@@ -718,7 +707,11 @@ try {
         respond([
             'jobs' => $database->enqueueJobs(
                 (string) ($payload['type'] ?? ''),
-                (array) ($payload['database_ids'] ?? [])
+                (array) (
+                    $payload['source_ids']
+                    ?? $payload['database_ids']
+                    ?? []
+                )
             ),
         ], 202);
     }

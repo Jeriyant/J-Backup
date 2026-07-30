@@ -35,7 +35,7 @@ function removeTree(string $directory): void
 $root = sys_get_temp_dir() . '/jbackup-test-' . bin2hex(random_bytes(6));
 $staging = $root . '/staging';
 $backup = $root . '/backup';
-mkdir($staging . '/cusj_test', 0770, true);
+mkdir($staging, 0770, true);
 mkdir($backup, 0770, true);
 
 try {
@@ -72,6 +72,22 @@ try {
             '{"connected":true}', '2026-01-01T00:00:00+07:00',
             '2026-01-01T00:00:01+07:00'
         );
+
+        CREATE TABLE database_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            include_sys INTEGER NOT NULL DEFAULT 1,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        INSERT INTO database_entries(
+            name, include_sys, enabled, created_at, updated_at
+        ) VALUES (
+            'legacy_source', 1, 1,
+            '2026-01-01T00:00:00+07:00',
+            '2026-01-01T00:00:00+07:00'
+        );
         SQL
     );
     $legacyDatabase = null;
@@ -81,6 +97,15 @@ try {
         $database->sshTask('legacy-ssh-task')['status'] === 'success',
         'Migrasi tipe task SSH menghilangkan riwayat lama.'
     );
+    $legacySource = $database->sources()[0];
+    assertTrue(
+        array_column($legacySource['paths'], 'path') === [
+            '/var/lib/mysql/legacy_source',
+            '/var/lib/mysql/legacy_source_sys',
+        ],
+        'Database lama tidak dimigrasikan menjadi sumber dengan path eksplisit.'
+    );
+    $database->deleteSource($legacySource['id']);
     assertTrue(
         $database->settings()['remote_user'] === 'root'
             && $database->settings()['staging_dir'] === $root . '/Realtime-Data'
@@ -140,11 +165,23 @@ try {
         'Jadwal hari tertentu lama tidak dimigrasikan menjadi harian.'
     );
     $created = $database->createDatabase([
-        'name' => 'cusj_test',
-        'include_sys' => false,
+        'name' => 'Sumber Universal',
+        'archive_mode' => 'combined',
+        'paths' => [
+            '/var/lib/mysql/cusj_test',
+            'website=/var/www/example.com',
+        ],
     ]);
-    assertTrue($created['name'] === 'cusj_test', 'Input nama database gagal.');
-    assertTrue(count($database->databases()) === 1, 'Daftar database tidak tersimpan.');
+    assertTrue(
+        $created['name'] === 'Sumber Universal'
+            && count($created['paths']) === 2
+            && $created['paths'][1]['alias'] === 'website',
+        'Input sumber universal dan path gagal.'
+    );
+    assertTrue(count($database->sources()) === 1, 'Daftar sumber tidak tersimpan.');
+    $stagedSource = $staging . '/' . $created['id'] . '-Sumber-Universal';
+    mkdir($stagedSource . '/cusj_test', 0770, true);
+    mkdir($stagedSource . '/website', 0770, true);
 
     $database->updateSettings([
         'remote_host' => '127.0.0.1',
@@ -169,6 +206,23 @@ try {
     );
     assertTrue(is_file($job['output_path']), 'File final tidak ditemukan di tujuan.');
     assertTrue(filesize($job['output_path']) > 0, 'File final kosong.');
+    assertTrue(
+        count($job['outputs']) === 1
+            && $job['outputs'][0]['source_alias'] === null,
+        'Mode gabungan tidak mencatat satu output terverifikasi.'
+    );
+
+    $database->updateSource($created['id'], ['archive_mode' => 'separate']);
+    $database->enqueueJobs('backup', [$created['id']]);
+    assertTrue($runner->run() === 1, 'Backup terpisah tidak diproses.');
+    $separateJob = $database->jobs(1)[0];
+    assertTrue(
+        $separateJob['status'] === 'success'
+            && count($separateJob['outputs']) === 2
+            && array_column($separateJob['outputs'], 'source_alias')
+                === ['cusj_test', 'website'],
+        $separateJob['error'] ?: 'Mode arsip terpisah tidak menghasilkan setiap path.'
+    );
 
     $schedule = $database->updateSchedule('sync', [
         'enabled' => true,
@@ -186,7 +240,10 @@ try {
     $database->setSchedulerState('last_sync', $past);
 
     assertTrue($runner->run() === 1, 'Jadwal setiap menit tidak membuat pekerjaan.');
-    $scheduledJob = $database->jobs(1)[0];
+    $scheduledJob = array_values(array_filter(
+        $database->jobs(10),
+        static fn (array $item): bool => $item['type'] === 'sync'
+    ))[0];
     assertTrue($scheduledJob['type'] === 'sync', 'Jenis pekerjaan terjadwal tidak benar.');
     assertTrue($scheduledJob['status'] === 'success', 'Sinkronisasi terjadwal gagal.');
     assertTrue($runner->run() === 0, 'Jadwal interval berjalan dua kali terlalu cepat.');

@@ -288,11 +288,32 @@ try {
         'Upload file backup gagal.'
     );
 
-    $database = $request('database_create', 'POST', [
-        'name' => 'cusj_http_test',
-        'include_sys' => false,
+    $source = $request('source_create', 'POST', [
+        'name' => 'Sumber HTTP',
+        'archive_mode' => 'separate',
+        'paths' => [
+            '/var/lib/mysql/cusj_http_test',
+            ['alias' => 'website', 'path' => '/var/www/example.com'],
+        ],
     ]);
-    assertHttp($database['status'] === 201, 'Input database melalui API gagal.');
+    assertHttp(
+        $source['status'] === 201
+            && count($source['body']['source']['paths']) === 2
+            && $source['body']['source']['archive_mode'] === 'separate',
+        'Input sumber universal melalui API gagal.'
+    );
+    $sourceUpdate = $request('source_update', 'POST', [
+        'id' => $source['body']['source']['id'],
+        'archive_mode' => 'combined',
+        'paths' => ['/srv/data/dokumen'],
+    ]);
+    assertHttp(
+        $sourceUpdate['status'] === 200
+            && $sourceUpdate['body']['source']['archive_mode'] === 'combined'
+            && $sourceUpdate['body']['source']['paths'][0]['path']
+                === '/srv/data/dokumen',
+        'Perubahan path sumber melalui API gagal.'
+    );
 
     $schedule = $request('schedule_update', 'POST', [
         'type' => 'sync',
@@ -368,8 +389,9 @@ try {
     $dashboard = $request('dashboard');
     assertHttp($dashboard['status'] === 200, 'Dashboard tidak dapat dimuat.');
     assertHttp(
-        count($dashboard['body']['databases']) === 1,
-        'Database input tidak muncul pada dashboard.'
+        count($dashboard['body']['sources']) === 1
+            && count($dashboard['body']['sources'][0]['paths']) === 1,
+        'Sumber input tidak muncul pada dashboard.'
     );
     assertHttp(
         $dashboard['body']['settings']['ssh_password_saved'] === true
@@ -474,6 +496,9 @@ try {
         !$secretDatabase->query('SELECT COUNT(*) FROM users')->fetchColumn()
             && !$secretDatabase->query(
                 'SELECT COUNT(*) FROM database_entries'
+            )->fetchColumn()
+            && !$secretDatabase->query(
+                'SELECT COUNT(*) FROM source_paths'
             )->fetchColumn()
             && !$secretDatabase->query('SELECT COUNT(*) FROM jobs')->fetchColumn()
             && !$secretDatabase->query('SELECT COUNT(*) FROM ssh_tasks')->fetchColumn()
