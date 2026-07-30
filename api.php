@@ -263,6 +263,106 @@ function storagePath(string $root, string $relative, bool $directory = false): s
     return $resolved;
 }
 
+function storageEntryPath(string $root, string $relative): string
+{
+    $relative = storageRelativePath($relative);
+    if ($relative === '') {
+        throw new HttpException('Pilih file atau folder yang akan didownload.', 400);
+    }
+    $candidate = $root . DIRECTORY_SEPARATOR
+        . str_replace('/', DIRECTORY_SEPARATOR, $relative);
+    $resolved = realpath($candidate);
+    if (
+        $resolved === false
+        || !str_starts_with($resolved, $root . DIRECTORY_SEPARATOR)
+        || (!is_file($resolved) && !is_dir($resolved))
+        || is_link($candidate)
+    ) {
+        throw new HttpException('File atau folder tidak ditemukan.', 404);
+    }
+    return $resolved;
+}
+
+function sendStorageDownload(string $entry): never
+{
+    $download = $entry;
+    $temporary = null;
+    $filename = preg_replace(
+        '/[\x00-\x1F\x7F"\\\\]/',
+        '_',
+        basename($entry)
+    ) ?: 'download';
+
+    if (is_dir($entry)) {
+        if (!class_exists('ZipArchive')) {
+            throw new RuntimeException(
+                'Ekstensi PHP Zip belum tersedia. Jalankan kembali script install.'
+            );
+        }
+        $temporaryBase = tempnam(sys_get_temp_dir(), 'jbackup-download-');
+        if ($temporaryBase === false) {
+            throw new RuntimeException('File ZIP sementara tidak dapat dibuat.');
+        }
+        @unlink($temporaryBase);
+        $temporary = $temporaryBase . '.zip';
+        $zip = new ZipArchive();
+        if ($zip->open($temporary, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            throw new RuntimeException('Arsip ZIP sementara tidak dapat dibuka.');
+        }
+
+        $prefix = basename($entry);
+        $zip->addEmptyDir($prefix);
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator(
+                $entry,
+                FilesystemIterator::SKIP_DOTS
+            ),
+            RecursiveIteratorIterator::SELF_FIRST
+        );
+        foreach ($iterator as $item) {
+            if ($item->isLink()) {
+                continue;
+            }
+            $relative = substr($item->getPathname(), strlen($entry) + 1);
+            $archivePath = $prefix . '/'
+                . str_replace(DIRECTORY_SEPARATOR, '/', $relative);
+            if ($item->isDir()) {
+                $zip->addEmptyDir($archivePath);
+            } elseif (!$zip->addFile($item->getPathname(), $archivePath)) {
+                $zip->close();
+                @unlink($temporary);
+                throw new RuntimeException(
+                    'Salah satu file di dalam folder tidak dapat dimasukkan ke ZIP.'
+                );
+            }
+        }
+        if (!$zip->close()) {
+            @unlink($temporary);
+            throw new RuntimeException('Arsip ZIP sementara tidak dapat diselesaikan.');
+        }
+        $download = $temporary;
+        $filename .= '.zip';
+    }
+
+    header_remove('Content-Type');
+    header(
+        'Content-Type: '
+        . (is_dir($entry) ? 'application/zip' : 'application/octet-stream')
+    );
+    header(
+        'Content-Disposition: attachment; filename="'
+        . addcslashes($filename, "\\\"")
+        . '"'
+    );
+    header('Content-Length: ' . filesize($download));
+    header('Cache-Control: private, no-store');
+    readfile($download);
+    if ($temporary !== null) {
+        @unlink($temporary);
+    }
+    exit;
+}
+
 function storageListing(string $root, string $relative): array
 {
     $relative = storageRelativePath($relative);
@@ -365,11 +465,27 @@ function mountedDisks(array $settings): array
             if (count($parts) < 3 || in_array($parts[2], $ignored, true)) {
                 continue;
             }
-            $candidates[] = str_replace(
+            $source = str_replace(
+                ['\\040', '\\011', '\\134'],
+                [' ', "\t", '\\'],
+                $parts[0]
+            );
+            $mountPoint = str_replace(
                 ['\\040', '\\011', '\\134'],
                 [' ', "\t", '\\'],
                 $parts[1]
             );
+            $physicalBlockDevice = str_starts_with($source, '/dev/');
+            $wslPhysicalDrive = preg_match(
+                '#^/mnt/[a-z]$#i',
+                $mountPoint
+            ) === 1 && (
+                in_array($parts[2], ['9p', 'drvfs'], true)
+                || preg_match('/^[a-z]:/i', $source) === 1
+            );
+            if ($physicalBlockDevice || $wslPhysicalDrive) {
+                $candidates[] = $mountPoint;
+            }
         }
     }
 
@@ -579,21 +695,11 @@ try {
     if ($action === 'backup_download' || $action === 'realtime_download') {
         requireMethod('GET');
         $kind = str_starts_with($action, 'realtime') ? 'realtime' : 'backup';
-        $file = storagePath(
+        $entry = storageEntryPath(
             explorerRoot($database->settings(), $kind),
             (string) ($_GET['path'] ?? '')
         );
-        header_remove('Content-Type');
-        header('Content-Type: application/octet-stream');
-        header(
-            'Content-Disposition: attachment; filename="'
-            . addcslashes(basename($file), "\\\"")
-            . '"'
-        );
-        header('Content-Length: ' . filesize($file));
-        header('Cache-Control: private, no-store');
-        readfile($file);
-        exit;
+        sendStorageDownload($entry);
     }
 
     if ($action === 'storage_list') {
@@ -608,27 +714,21 @@ try {
     if ($action === 'storage_download') {
         requireMethod('GET');
         $settings = $database->settings();
-        $file = storagePath(
+        $entry = storageEntryPath(
             storageRoot($settings),
             (string) ($_GET['path'] ?? '')
         );
-        header_remove('Content-Type');
-        header('Content-Type: application/octet-stream');
-        header(
-            'Content-Disposition: attachment; filename="'
-            . addcslashes(basename($file), "\\\"")
-            . '"'
-        );
-        header('Content-Length: ' . filesize($file));
-        header('Cache-Control: private, no-store');
-        readfile($file);
-        exit;
+        sendStorageDownload($entry);
     }
 
     if ($action === 'storage_upload') {
         requireMethod('POST');
         $settings = $database->settings();
-        $root = storageRoot($settings);
+        $kind = (string) ($_POST['kind'] ?? 'backup');
+        if (!in_array($kind, ['backup', 'realtime'], true)) {
+            throw new HttpException('Jenis folder upload tidak valid.', 400);
+        }
+        $root = explorerRoot($settings, $kind);
         $directory = storagePath(
             $root,
             (string) ($_POST['path'] ?? ''),
@@ -648,10 +748,14 @@ try {
             $name === ''
             || $name === '.'
             || $name === '..'
-            || !preg_match('/\.7z$/i', $name)
             || preg_match('/[\x00-\x1F\x7F]/', $name)
         ) {
-            throw new RuntimeException('Hanya file backup .7z dengan nama valid yang dapat diupload.');
+            throw new RuntimeException('Nama file upload tidak valid.');
+        }
+        if ($kind === 'backup' && !preg_match('/\.7z$/i', $name)) {
+            throw new RuntimeException(
+                'Hanya file backup .7z yang dapat diupload ke folder Backup.'
+            );
         }
         $destination = $directory . DIRECTORY_SEPARATOR . $name;
         if (file_exists($destination)) {

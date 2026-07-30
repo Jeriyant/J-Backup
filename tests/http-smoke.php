@@ -288,6 +288,12 @@ try {
         $diskList['status'] === 200 && is_array($diskList['body']['disks']),
         'Daftar disk host tidak dapat dibaca.'
     );
+    foreach ($diskList['body']['disks'] as $disk) {
+        assertHttp(
+            !preg_match('#^/(?:proc|sys|dev|run|usr/lib/wsl)(?:/|$)#', (string) $disk['path']),
+            'Daftar disk host masih memuat filesystem virtual.'
+        );
+    }
 
     $backupList = $request('backup_list');
     assertHttp(
@@ -347,6 +353,28 @@ try {
             && $download['body'] === 'simulated-7z-content',
         'Download file backup gagal.'
     );
+    $folderDownload = $rawRequest(
+        'realtime_download',
+        'GET',
+        '',
+        'application/octet-stream',
+        ['path' => 'source-one']
+    );
+    $downloadedZip = $root . '/downloaded-realtime.zip';
+    file_put_contents($downloadedZip, $folderDownload['body']);
+    $zip = new ZipArchive();
+    $zipOpened = $folderDownload['status'] === 200
+        && $zip->open($downloadedZip) === true;
+    $zippedRealtime = $zipOpened
+        ? $zip->getFromName('source-one/data.txt')
+        : false;
+    if ($zipOpened) {
+        $zip->close();
+    }
+    assertHttp(
+        $zipOpened && $zippedRealtime === 'realtime-content',
+        'Download folder realtime sebagai ZIP gagal.'
+    );
 
     $boundary = '----JBackupTest' . bin2hex(random_bytes(6));
     $uploadContent = 'uploaded-7z-content';
@@ -369,6 +397,30 @@ try {
             && file_get_contents($backupRoot . '/2026/07/30/uploaded-backup.7z')
                 === $uploadContent,
         'Upload file backup gagal.'
+    );
+    $realtimeUploadContent = 'uploaded-realtime-content';
+    $realtimeMultipart = "--{$boundary}\r\n"
+        . "Content-Disposition: form-data; name=\"kind\"\r\n\r\n"
+        . "realtime\r\n"
+        . "--{$boundary}\r\n"
+        . "Content-Disposition: form-data; name=\"path\"\r\n\r\n"
+        . "source-one\r\n"
+        . "--{$boundary}\r\n"
+        . "Content-Disposition: form-data; name=\"file\"; filename=\"uploaded.txt\"\r\n"
+        . "Content-Type: text/plain\r\n\r\n"
+        . $realtimeUploadContent . "\r\n"
+        . "--{$boundary}--\r\n";
+    $realtimeUpload = $rawRequest(
+        'storage_upload',
+        'POST',
+        $realtimeMultipart,
+        "multipart/form-data; boundary={$boundary}"
+    );
+    assertHttp(
+        $realtimeUpload['status'] === 201
+            && file_get_contents($realtimeRoot . '/source-one/uploaded.txt')
+                === $realtimeUploadContent,
+        'Upload file realtime gagal.'
     );
 
     $source = $request('source_create', 'POST', [

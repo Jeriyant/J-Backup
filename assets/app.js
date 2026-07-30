@@ -273,6 +273,7 @@ const app = document.querySelector("#app");
         if (!file) return;
         const form = new FormData();
         form.append("path", state.storagePath);
+        form.append("kind", state.explorerKind);
         form.append("file", file);
         const response = await fetch("api.php?action=storage_upload", {
             method: "POST",
@@ -427,6 +428,7 @@ const app = document.querySelector("#app");
             && Date.parse(job.finished_at || job.started_at || job.queued_at) >= recentFailureLimit
         ).length;
         const successes = d.jobs.filter((job) => job.status === "success").length;
+        const failedJobs = d.jobs.filter((job) => job.status === "failed").length;
         const sshConnected = d.settings.ssh_connected === true;
         const sshTarget = d.settings.ssh_connected_target
             || (d.settings.remote_host
@@ -490,6 +492,7 @@ const app = document.querySelector("#app");
                 <div class="metrics">
                     <article class="metric"><p>Sumber aktif</p><strong>${d.sources.filter((item) => item.enabled).length}</strong><small>dari ${d.sources.length} terdaftar</small></article>
                     <article class="metric"><p>Job berhasil</p><strong>${successes}</strong><small>dari ${d.jobs.length} riwayat terakhir</small></article>
+                    <article class="metric metric-failed"><p>Job gagal</p><strong>${failedJobs}</strong><small>dari ${d.jobs.length} riwayat terakhir</small></article>
                     <article class="metric"><p>Ruang tersedia</p><strong>${bytes(d.disk.free)}</strong><small>${d.disk.used_percent}% disk terpakai</small></article>
                 </div>
                 <article class="panel system-monitor">
@@ -732,13 +735,13 @@ const app = document.querySelector("#app");
             <article class="panel storage-explorer">
                 <div class="panel-heading">
                     <div><p class="eyebrow">FILE EXPLORER</p><h2>${kind === "backup" ? "File hasil backup" : "Data realtime"}</h2>
-                        <p class="muted">${kind === "backup" ? "Jelajahi, download, atau upload arsip pada folder tujuan." : "Jelajahi dan download data hasil sinkronisasi terbaru."}</p></div>
+                        <p class="muted">${kind === "backup" ? "Jelajahi, download, atau upload arsip pada folder tujuan." : "Jelajahi, download, atau upload data hasil sinkronisasi terbaru."}</p></div>
                     <div class="toolbar storage-toolbar">
                         <button class="button ghost" data-action="storage-refresh"><span>↻</span>Refresh</button>
-                        ${kind === "backup" ? `
-                        <label class="button primary upload-button"><span>⇧</span>Upload .7z
-                            <input id="storage-upload" type="file" accept=".7z,application/x-7z-compressed">
-                        </label>` : ""}
+                        <label class="button primary upload-button"><span>⇧</span>${kind === "backup" ? "Upload .7z" : "Upload file"}
+                            <input id="storage-upload" type="file"
+                                ${kind === "backup" ? 'accept=".7z,application/x-7z-compressed"' : ""}>
+                        </label>
                     </div>
                 </div>
                 <div class="storage-navigation">
@@ -766,17 +769,20 @@ const app = document.querySelector("#app");
                                 </div>
                                 <span>${entry.type === "directory" ? "Folder" : bytes(entry.size)}</span>
                                 <span>${dateTime(entry.modified_at)}</span>
-                                <span class="file-actions">${entry.type === "file" ? `
+                                <span class="file-actions">
                                     <a class="row-button download-button"
                                         href="api.php?action=${kind}_download&path=${encodeURIComponent(entry.path)}"
-                                        download="${escapeHtml(entry.name)}" title="Download ${escapeHtml(entry.name)}"
+                                        download="${escapeHtml(entry.type === "directory" ? `${entry.name}.zip` : entry.name)}"
+                                        title="${entry.type === "directory" ? "Download folder sebagai ZIP" : "Download"} ${escapeHtml(entry.name)}"
                                         aria-label="Download ${escapeHtml(entry.name)}">
                                             <svg viewBox="0 0 24 24" aria-hidden="true">
                                                 <path d="M12 3v11m0 0 4-4m-4 4-4-4M5 18v2h14v-2"/>
                                             </svg>
-                                        </a>` : `
+                                        </a>
+                                    ${entry.type === "directory" ? `
                                     <button class="row-button" data-storage-path="${escapeHtml(entry.path)}"
-                                        aria-label="Buka ${escapeHtml(entry.name)}">→</button>`}</span>
+                                        aria-label="Buka ${escapeHtml(entry.name)}">→</button>` : ""}
+                                </span>
                             </div>`).join("")}
                     </div>
                 ` : `
