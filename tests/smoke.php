@@ -52,11 +52,35 @@ try {
         );
         INSERT INTO schedules(type, enabled, time, days, updated_at)
         VALUES ('sync', 0, '01:00', '[1,3,5]', '2026-01-01T00:00:00+07:00');
+
+        CREATE TABLE ssh_tasks (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL CHECK(type IN ('generate_key', 'test_connection')),
+            status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'success', 'failed')),
+            payload TEXT NOT NULL DEFAULT '{}',
+            result TEXT,
+            error TEXT,
+            created_at TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT
+        );
+        INSERT INTO ssh_tasks(
+            id, type, status, payload, result, created_at, finished_at
+        )
+        VALUES (
+            'legacy-ssh-task', 'test_connection', 'success', '{}',
+            '{"connected":true}', '2026-01-01T00:00:00+07:00',
+            '2026-01-01T00:00:01+07:00'
+        );
         SQL
     );
     $legacyDatabase = null;
 
     $database = new Database($root . '/j-backup.sqlite');
+    assertTrue(
+        $database->sshTask('legacy-ssh-task')['status'] === 'success',
+        'Migrasi tipe task SSH menghilangkan riwayat lama.'
+    );
     $database->updateSettings([
         'staging_dir' => '/var/lib/j-backup/staging',
         'ssh_key_path' => '/var/lib/j-backup/.ssh/id_ed25519',
@@ -194,6 +218,17 @@ try {
             && $connectionTask['result']['connected'] === true,
         $connectionTask['error'] ?: 'Tes koneksi simulasi gagal.'
     );
+    $connectionState = json_decode(
+        (string) $database->schedulerState('ssh_connection'),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    assertTrue(
+        $connectionState['connected'] === true
+            && $connectionState['target'] === 'backup@127.0.0.1',
+        'Status koneksi SSH sukses tidak tersimpan.'
+    );
 
     $rsaPath = $root . '/.ssh/id_rsa';
     $installTask = $database->createSshTask('generate_key', [
@@ -219,6 +254,32 @@ try {
     assertTrue(
         !array_key_exists('secret', $installTask),
         'Password SSH bocor melalui hasil task.'
+    );
+
+    $disconnectTask = $database->createSshTask('disconnect', [
+        'remote_host' => '127.0.0.1',
+        'remote_port' => 22,
+        'remote_user' => 'backup',
+        'ssh_key_path' => $rsaPath,
+    ]);
+    $runner->run();
+    $disconnectTask = $database->sshTask($disconnectTask['id']);
+    assertTrue(
+        $disconnectTask['status'] === 'success'
+            && $disconnectTask['result']['disconnected'] === true,
+        $disconnectTask['error'] ?: 'Disconnect SSH simulasi gagal.'
+    );
+    assertTrue(
+        !is_file($rsaPath) && !is_file($rsaPath . '.pub'),
+        'Disconnect tidak menghapus pasangan key lokal.'
+    );
+    assertTrue(
+        $database->schedulerState('ssh_connection') === null,
+        'Status koneksi tidak dibersihkan setelah disconnect.'
+    );
+    assertTrue(
+        $secretStore->get('ssh_password') === null,
+        'Password SSH tersimpan tidak dihapus setelah disconnect.'
     );
 
     fwrite(STDOUT, "Semua smoke test J-BACKUP lulus.\n");

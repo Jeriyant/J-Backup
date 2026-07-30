@@ -85,12 +85,29 @@ final class JobRunner
             $this->activeSshTaskId = $task['id'];
             $this->appendSshLog("Worker mengambil tugas SSH.\n");
             try {
-                $result = $task['type'] === 'generate_key'
-                    ? $this->generateSshKey(
+                $result = match ($task['type']) {
+                    'generate_key' => $this->generateSshKey(
                         $task['payload'],
                         $task['secret'] ?? []
-                    )
-                    : $this->testSshConnection($task['payload']);
+                    ),
+                    'test_connection' => $this->testSshConnection(
+                        $task['payload']
+                    ),
+                    'disconnect' => $this->disconnectSsh(
+                        $task['payload']
+                    ),
+                    default => throw new RuntimeException(
+                        'Jenis tindakan SSH tidak dikenal.'
+                    ),
+                };
+                if (($result['disconnected'] ?? false) === true) {
+                    $this->database->deleteSchedulerState('ssh_connection');
+                } elseif (
+                    ($result['connected'] ?? false) === true
+                    || ($result['installed'] ?? false) === true
+                ) {
+                    $this->recordSshConnection($task['payload'], $result);
+                }
                 $this->database->updateSshTask($task['id'], [
                     'status' => 'success',
                     'result' => $result,
@@ -130,7 +147,7 @@ final class JobRunner
                 throw new RuntimeException('Folder SSH tidak dapat dibuat oleh worker.');
             }
         }
-        chmod($sshDirectory, 0700);
+        @chmod($sshDirectory, 0700);
 
         $created = false;
         if (!is_file($keyPath)) {
@@ -183,8 +200,8 @@ final class JobRunner
             $this->appendSshLog("Pasangan kunci sudah tersedia; pembuatan dilewati.\n");
         }
 
-        chmod($keyPath, 0600);
-        chmod($publicPath, 0644);
+        @chmod($keyPath, 0600);
+        @chmod($publicPath, 0644);
         $publicKey = trim((string) file_get_contents($publicPath));
         if (!preg_match('/^ssh-(?:ed25519|rsa)\s+/', $publicKey)) {
             throw new RuntimeException('Public key yang dihasilkan tidak valid.');
@@ -311,6 +328,122 @@ final class JobRunner
         ];
     }
 
+    private function disconnectSsh(array $payload): array
+    {
+        $config = $this->sshConfig($payload);
+        $keyPath = $config['key_path'];
+        $publicPath = $keyPath . '.pub';
+        if (!is_file($keyPath)) {
+            throw new RuntimeException(
+                'Private key lokal tidak ditemukan. Public key remote tidak dapat dicabut dengan aman.'
+            );
+        }
+
+        if (is_file($publicPath)) {
+            $publicKey = trim((string) file_get_contents($publicPath));
+        } elseif ($this->simulate) {
+            throw new RuntimeException('Public key simulasi tidak ditemukan.');
+        } else {
+            $derived = $this->runUtility(
+                ['/usr/bin/ssh-keygen', '-y', '-f', $keyPath],
+                15
+            );
+            $publicKey = trim($derived['stdout']);
+        }
+        $parts = preg_split('/\s+/', $publicKey, 3) ?: [];
+        if (
+            count($parts) < 2
+            || !preg_match('/^ssh-(?:ed25519|rsa)$/', $parts[0])
+            || !preg_match('/^[A-Za-z0-9+\/=]+$/', $parts[1])
+        ) {
+            throw new RuntimeException('Public key lokal tidak valid.');
+        }
+
+        $target = $config['user'] . '@' . $config['host'];
+        $this->appendSshLog(
+            "Mencabut public key J-BACKUP dari {$target}:{$config['port']}...\n"
+        );
+        if (!$this->simulate) {
+            $knownHosts = dirname($keyPath) . '/known_hosts';
+            $remoteScript = <<<'SH'
+set -eu
+auth_file="${HOME}/.ssh/authorized_keys"
+[ -f "${auth_file}" ] || exit 0
+temp_file="${auth_file}.jbackup.$$"
+awk -v key_type="$1" -v key_data="$2" \
+  '!(($1 == key_type) && ($2 == key_data))' \
+  "${auth_file}" > "${temp_file}"
+chmod 600 "${temp_file}" 2>/dev/null || true
+mv "${temp_file}" "${auth_file}"
+SH;
+            $this->runUtility([
+                '/usr/bin/ssh',
+                '-o',
+                'BatchMode=yes',
+                '-o',
+                'ConnectTimeout=10',
+                '-o',
+                'ConnectionAttempts=1',
+                '-o',
+                'IdentitiesOnly=yes',
+                '-o',
+                'StrictHostKeyChecking=accept-new',
+                '-o',
+                'UserKnownHostsFile=' . $knownHosts,
+                '-o',
+                'LogLevel=ERROR',
+                '-i',
+                $keyPath,
+                '-p',
+                (string) $config['port'],
+                $target,
+                'sh -s -- ' . $parts[0] . ' ' . $parts[1],
+            ], 20, [], $remoteScript);
+        }
+        $this->appendSshLog("Public key remote berhasil dicabut.\n");
+        $this->database->deleteSchedulerState('ssh_connection');
+
+        $notRemoved = [];
+        foreach ([$keyPath, $publicPath, dirname($keyPath) . '/known_hosts'] as $file) {
+            if (is_file($file) && !@unlink($file)) {
+                $notRemoved[] = $file;
+            }
+        }
+        $this->secretStore?->delete('ssh_password');
+        if ($notRemoved !== []) {
+            throw new RuntimeException(
+                'Public key remote sudah dicabut, tetapi file lokal gagal dihapus: '
+                . implode(', ', $notRemoved)
+            );
+        }
+        $this->appendSshLog(
+            "Private key, public key, known_hosts, dan password tersimpan telah dihapus.\n"
+        );
+
+        return [
+            'disconnected' => true,
+            'target' => $target,
+            'message' => 'Koneksi SSH diputus dan key berhasil dihapus.',
+        ];
+    }
+
+    private function recordSshConnection(array $payload, array $result): void
+    {
+        $config = $this->sshConfig($payload);
+        $this->database->setSchedulerState(
+            'ssh_connection',
+            json_encode([
+                'connected' => true,
+                'host' => $config['host'],
+                'port' => $config['port'],
+                'user' => $config['user'],
+                'target' => $result['target']
+                    ?? ($config['user'] . '@' . $config['host']),
+                'connected_at' => Database::now(),
+            ], JSON_THROW_ON_ERROR)
+        );
+    }
+
     private function sshConfig(array $payload, bool $requireConnection = true): array
     {
         $settings = $this->database->settings();
@@ -351,7 +484,8 @@ final class JobRunner
     private function runUtility(
         array $command,
         int $timeoutSeconds,
-        array $environment = []
+        array $environment = [],
+        string $stdin = ''
     ): array
     {
         $processEnvironment = $environment === []
@@ -371,6 +505,9 @@ final class JobRunner
         );
         if (!is_resource($process)) {
             throw new RuntimeException('Utilitas sistem tidak dapat dijalankan.');
+        }
+        if ($stdin !== '') {
+            fwrite($pipes[0], $stdin);
         }
         fclose($pipes[0]);
         stream_set_blocking($pipes[1], false);
@@ -547,9 +684,6 @@ final class JobRunner
         $staging = $this->absoluteDirectory($settings['staging_dir'], true);
         $remoteRoot = $this->absolutePath($settings['remote_root']);
         $keyPath = $this->absolutePath($settings['ssh_key_path']);
-        if (!preg_match('#^[A-Za-z0-9_./-]+$#', $keyPath)) {
-            throw new RuntimeException('Lokasi private key mengandung karakter yang tidak valid.');
-        }
 
         $names = [$job['database_name']];
         if ($job['include_sys']) {
@@ -581,7 +715,7 @@ final class JobRunner
                 $this->runCommand(
                     [
                         $settings['rsync_binary'],
-                        '-avzh',
+                        '-rzh',
                         '--partial',
                         '-e',
                         $ssh,
@@ -760,6 +894,7 @@ final class JobRunner
         stream_set_blocking($pipes[1], false);
         stream_set_blocking($pipes[2], false);
         $exitCode = -1;
+        $recentOutput = '';
 
         try {
             while (true) {
@@ -767,6 +902,10 @@ final class JobRunner
                     $chunk = stream_get_contents($pipes[$pipeIndex]);
                     if ($chunk !== false && $chunk !== '') {
                         $this->appendLog($jobId, $chunk);
+                        $recentOutput = substr(
+                            $recentOutput . $chunk,
+                            -8000
+                        );
                     }
                 }
 
@@ -788,6 +927,7 @@ final class JobRunner
                 $chunk = stream_get_contents($pipes[$pipeIndex]);
                 if ($chunk !== false && $chunk !== '') {
                     $this->appendLog($jobId, $chunk);
+                    $recentOutput = substr($recentOutput . $chunk, -8000);
                 }
                 fclose($pipes[$pipeIndex]);
             }
@@ -795,6 +935,17 @@ final class JobRunner
         }
 
         if ($exitCode !== 0) {
+            if (basename($command[0]) === 'rsync' && $exitCode === 23) {
+                $message = str_contains(
+                    strtolower($recentOutput),
+                    'operation not permitted'
+                )
+                    ? 'Rsync tidak dapat menulis atribut file pada folder staging. '
+                        . 'Gunakan folder yang dapat ditulis worker atau mode staging kompatibel WSL.'
+                    : 'Sebagian file tidak dapat disalin oleh rsync (kode 23). '
+                        . 'Periksa detail izin atau file yang gagal pada log.';
+                throw new RuntimeException($message);
+            }
             throw new RuntimeException(
                 sprintf('%s berhenti dengan kode %d.', basename($command[0]), $exitCode)
             );

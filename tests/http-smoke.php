@@ -333,6 +333,18 @@ try {
             && $sshStatus['body']['task']['id'] === $sshTask['body']['task']['id'],
         'Status tindakan SSH tidak dapat dibaca.'
     );
+    $disconnectTask = $request('ssh_task_create', 'POST', [
+        'type' => 'disconnect',
+        'remote_host' => '127.0.0.1',
+        'remote_port' => 22,
+        'remote_user' => 'backup',
+        'ssh_key_path' => $root . '/data/.ssh/id_ed25519',
+    ]);
+    assertHttp(
+        $disconnectTask['status'] === 202
+            && $disconnectTask['body']['task']['type'] === 'disconnect',
+        'Tindakan Disconnect SSH tidak diterima API.'
+    );
 
     $dashboard = $request('dashboard');
     assertHttp($dashboard['status'] === 200, 'Dashboard tidak dapat dimuat.');
@@ -344,6 +356,10 @@ try {
         $dashboard['body']['settings']['ssh_password_saved'] === true
             && !array_key_exists('ssh_password', $dashboard['body']['settings']),
         'Status password SSH tersimpan tidak aman.'
+    );
+    assertHttp(
+        $dashboard['body']['settings']['ssh_connected'] === false,
+        'Status koneksi SSH awal tidak benar.'
     );
     $syncSchedule = array_values(array_filter(
         $dashboard['body']['schedules'],

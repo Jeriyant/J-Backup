@@ -137,6 +137,36 @@ function publicSettings(array $settings): array
     return $settings;
 }
 
+function sshConnectionInfo(
+    \JBackup\Database $database,
+    array $settings
+): array
+{
+    $raw = $database->schedulerState('ssh_connection');
+    $state = is_string($raw) ? json_decode($raw, true) : null;
+    $keyPath = (string) ($settings['ssh_key_path'] ?? '');
+    $connected = is_array($state)
+        && ($state['connected'] ?? false) === true
+        && hash_equals(
+            (string) ($state['host'] ?? ''),
+            (string) ($settings['remote_host'] ?? '')
+        )
+        && (int) ($state['port'] ?? 0) === (int) ($settings['remote_port'] ?? 0)
+        && hash_equals(
+            (string) ($state['user'] ?? ''),
+            (string) ($settings['remote_user'] ?? '')
+        )
+        && is_file($keyPath);
+
+    return [
+        'connected' => $connected,
+        'target' => $connected ? (string) ($state['target'] ?? '') : null,
+        'connected_at' => $connected
+            ? (string) ($state['connected_at'] ?? '')
+            : null,
+    ];
+}
+
 function diskInfo(string $path): array
 {
     if (!is_dir($path)) {
@@ -319,7 +349,11 @@ try {
     if ($action === 'dashboard') {
         requireMethod('GET');
         $settings = publicSettings($database->settings());
+        $connection = sshConnectionInfo($database, $settings);
         $settings['ssh_password_saved'] = $secretStore->has('ssh_password');
+        $settings['ssh_connected'] = $connection['connected'];
+        $settings['ssh_connected_target'] = $connection['target'];
+        $settings['ssh_connected_at'] = $connection['connected_at'];
         $queueCount = (int) $database->pdo()->query(
             "SELECT COUNT(*) FROM jobs WHERE status = 'queued'"
         )->fetchColumn();
@@ -523,7 +557,8 @@ try {
         $payload = input();
         $type = (string) ($payload['type'] ?? '');
         $settings = $database->settings();
-        $installKey = ($payload['install_key'] ?? false) === true;
+        $installKey = $type === 'generate_key'
+            && ($payload['install_key'] ?? false) === true;
         $taskPayload = [
             'remote_host' => trim((string) (
                 $payload['remote_host'] ?? $settings['remote_host']

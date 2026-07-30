@@ -458,6 +458,7 @@ const app = document.querySelector("#app");
 
     function renderSettings() {
         const s = state.dashboard.settings;
+        const sshConnected = s.ssh_connected === true;
         return `<form class="grid settings-grid form" data-form="settings">
             <section class="panel"><div class="panel-heading"><div><p class="eyebrow">KONEKSI SUMBER</p><h2>SSH & rsync</h2></div></div>
                 <div class="form-grid">
@@ -486,9 +487,14 @@ const app = document.querySelector("#app");
                     <label class="span-2">Root database remote<input name="remote_root" value="${escapeHtml(s.remote_root)}"></label>
                     <label class="span-2">Folder staging lokal<input name="staging_dir" value="${escapeHtml(s.staging_dir)}"></label>
                     <div class="ssh-tools span-2">
-                        <button class="button ssh-setup" type="button" data-action="ssh-setup"><span>⇥</span>Setup koneksi</button>
+                        <button class="button ${sshConnected ? "danger ssh-disconnect" : "ssh-setup"}" type="button"
+                            data-action="${sshConnected ? "ssh-disconnect" : "ssh-connect"}">
+                            <span>${sshConnected ? "×" : "⇥"}</span>${sshConnected ? "Disconnect" : "Connect"}
+                        </button>
                         <button class="button ssh-test" type="button" data-action="ssh-test"><span>✓</span>Tes koneksi</button>
-                        <small>Password disimpan terenkripsi dan otomatis dipakai saat Setup koneksi. Setelah key aktif, gunakan Tes koneksi.</small>
+                        <small>${sshConnected
+                            ? `Terhubung ke ${escapeHtml(s.ssh_connected_target || `${s.remote_user}@${s.remote_host}`)}. Disconnect mencabut key remote dan menghapus key lokal.`
+                            : "Connect membuat key, memasangnya ke server sumber, lalu menguji login tanpa password."}</small>
                     </div>
                 </div>
             </section>
@@ -611,6 +617,7 @@ const app = document.querySelector("#app");
         const labels = {
             generate_key: "Pembuatan kunci",
             test_connection: "Pengujian koneksi",
+            disconnect: "Pemutusan koneksi",
         };
         if (installKey) labels.generate_key = "Pemasangan login tanpa password";
         toast(`${labels[type]} masuk antrean worker…`);
@@ -670,7 +677,7 @@ const app = document.querySelector("#app");
                     <button class="button primary wide action-save" data-action="copy-public-key"><span>⧉</span>Salin public key</button>
                     ${terminal()}
                 `, true);
-            } else {
+            } else if (type === "test_connection") {
                 showModal(`
                     <p class="eyebrow">TES KONEKSI</p>
                     <h2>Koneksi SSH berhasil</h2>
@@ -679,7 +686,17 @@ const app = document.querySelector("#app");
                         <small>${task.result.latency_ms ? `${task.result.latency_ms} ms` : "Terhubung"}</small></span></div>
                     ${terminal()}
                 `, true);
+            } else {
+                showModal(`
+                    <p class="eyebrow">KONEKSI SSH DIPUTUS</p>
+                    <h2>Disconnect berhasil</h2>
+                    <p class="muted">Public key J-BACKUP telah dicabut dari server sumber.</p>
+                    <div class="connection-success"><i>✓</i><span><strong>${escapeHtml(task.result.target)}</strong>
+                        <small>Key lokal, known_hosts, dan password tersimpan sudah dihapus</small></span></div>
+                    ${terminal()}
+                `, true);
             }
+            await loadDashboard();
             toast(task.result.message);
         } catch (error) {
             terminalLog = error.task?.log || terminalLog;
@@ -768,8 +785,14 @@ const app = document.querySelector("#app");
                 toast(result.update_available
                     ? `Versi ${result.latest_version} tersedia.`
                     : `J-BACKUP ${result.current_version} sudah terbaru.`);
-            } else if (target.dataset.action === "ssh-setup") {
+            } else if (target.dataset.action === "ssh-connect") {
                 await runSshTool("generate_key", true);
+            } else if (target.dataset.action === "ssh-disconnect") {
+                if (confirm(
+                    "Disconnect akan mencabut public key J-BACKUP dari server sumber dan menghapus key serta password SSH lokal. Lanjutkan?"
+                )) {
+                    await runSshTool("disconnect");
+                }
             } else if (target.dataset.action === "ssh-test") {
                 await runSshTool("test_connection");
             } else if (target.dataset.action === "delete-ssh-password") {

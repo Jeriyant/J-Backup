@@ -17,9 +17,11 @@ final class Database
         'remote_port' => '22',
         'remote_user' => 'backup',
         'remote_root' => '/var/lib/mysql',
+        'staging_dir' => '',
         'backup_dir' => '/var/backups/j-backup',
         'compression_level' => '9',
         'filename_template' => '{date}_{time}-{name}.7z',
+        'ssh_key_path' => '',
         'ssh_key_type' => 'ed25519',
         'ssh_key_comment' => 'J-BACKUP-Key',
         'rsync_binary' => '/usr/bin/rsync',
@@ -133,7 +135,9 @@ final class Database
 
             CREATE TABLE IF NOT EXISTS ssh_tasks (
                 id TEXT PRIMARY KEY,
-                type TEXT NOT NULL CHECK(type IN ('generate_key', 'test_connection')),
+                type TEXT NOT NULL CHECK(type IN (
+                    'generate_key', 'test_connection', 'disconnect'
+                )),
                 status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'success', 'failed')),
                 payload TEXT NOT NULL DEFAULT '{}',
                 secret TEXT,
@@ -187,8 +191,67 @@ final class Database
                 "ALTER TABLE ssh_tasks ADD COLUMN log TEXT NOT NULL DEFAULT ''"
             );
         }
+        $this->migrateSshTaskTypes();
 
         $this->migrateRuntimePaths();
+    }
+
+    private function migrateSshTaskTypes(): void
+    {
+        $schema = (string) $this->pdo->query(
+            "SELECT sql FROM sqlite_master
+             WHERE type = 'table' AND name = 'ssh_tasks'"
+        )->fetchColumn();
+        if (str_contains($schema, "'disconnect'")) {
+            return;
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $this->pdo->exec(
+                <<<'SQL'
+                ALTER TABLE ssh_tasks RENAME TO ssh_tasks_legacy;
+
+                CREATE TABLE ssh_tasks (
+                    id TEXT PRIMARY KEY,
+                    type TEXT NOT NULL CHECK(type IN (
+                        'generate_key', 'test_connection', 'disconnect'
+                    )),
+                    status TEXT NOT NULL CHECK(status IN (
+                        'queued', 'running', 'success', 'failed'
+                    )),
+                    payload TEXT NOT NULL DEFAULT '{}',
+                    secret TEXT,
+                    result TEXT,
+                    log TEXT NOT NULL DEFAULT '',
+                    error TEXT,
+                    created_at TEXT NOT NULL,
+                    started_at TEXT,
+                    finished_at TEXT
+                );
+
+                INSERT INTO ssh_tasks(
+                    id, type, status, payload, secret, result, log, error,
+                    created_at, started_at, finished_at
+                )
+                SELECT
+                    id, type, status, payload, secret, result, log, error,
+                    created_at, started_at, finished_at
+                FROM ssh_tasks_legacy;
+
+                DROP TABLE ssh_tasks_legacy;
+
+                CREATE INDEX ssh_tasks_status_idx
+                ON ssh_tasks(status, created_at);
+                SQL
+            );
+            $this->pdo->commit();
+        } catch (\Throwable $error) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $error;
+        }
     }
 
     private function migrateRuntimePaths(): void
@@ -714,6 +777,14 @@ final class Database
         $statement->execute([$key, $value]);
     }
 
+    public function deleteSchedulerState(string $key): void
+    {
+        $statement = $this->pdo->prepare(
+            'DELETE FROM scheduler_state WHERE key = ?'
+        );
+        $statement->execute([$key]);
+    }
+
     public function encryptedSecret(string $name): ?string
     {
         $statement = $this->pdo->prepare(
@@ -752,7 +823,11 @@ final class Database
         array $secret = []
     ): array
     {
-        if (!in_array($type, ['generate_key', 'test_connection'], true)) {
+        if (!in_array(
+            $type,
+            ['generate_key', 'test_connection', 'disconnect'],
+            true
+        )) {
             throw new RuntimeException('Jenis tindakan SSH tidak dikenal.');
         }
         $existing = $this->pdo->prepare(

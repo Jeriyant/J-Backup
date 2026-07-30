@@ -155,7 +155,7 @@ Saat pertama dibuka:
 2. Buka menu **Pengaturan**.
 3. Isi host, port, user, dan password SSH.
 4. Simpan pengaturan.
-5. Tekan **Setup koneksi** untuk membuat dan memasang public key.
+5. Tekan **Connect** untuk membuat dan memasang public key.
 6. Tekan **Tes koneksi** untuk menguji autentikasi private key.
 7. Isi root database remote, folder staging, dan tujuan backup.
 8. Tambahkan database dari menu **Database**.
@@ -168,9 +168,21 @@ berada di:
 <lokasi-data>/secret.key
 ```
 
-Password tersimpan dapat ditampilkan kembali hanya oleh administrator melalui
-sesi HTTPS atau akses localhost. Jangan menghapus `secret.key`; tanpa file itu,
+Password tersimpan dapat ditampilkan kembali oleh administrator melalui antarmuka Web. Jangan menghapus `secret.key`; tanpa file itu,
+
 password lama tidak dapat didekripsi.
+
+Setelah Connect berhasil, tombol berubah menjadi **Disconnect**. Tindakan
+Disconnect akan:
+
+- mencabut public key J-BACKUP yang cocok dari `~/.ssh/authorized_keys` server
+  sumber;
+- menghapus private key, public key, dan `known_hosts` lokal;
+- menghapus password SSH terenkripsi yang tersimpan;
+- mempertahankan host, port, dan user agar Connect dapat dilakukan kembali.
+
+Jika pencabutan key remote gagal, key lokal tidak dihapus agar proses dapat
+dicoba lagi dengan aman.
 
 ## 6. Periksa worker
 
@@ -208,6 +220,21 @@ dan upload file `.7z`. Upload dengan nama sama akan ditolak.
 
 Batas upload bawaan adalah 8 GB. Ubah `deploy/php-j-backup.ini`, lalu jalankan
 installer kembali untuk menerapkan nilai baru.
+
+### Catatan staging pada WSL
+
+Drive Windows seperti `/mnt/c`, `/mnt/d`, atau `/mnt/e` tidak mendukung seluruh
+metadata permission dan timestamp Linux. J-BACKUP menjalankan rsync dalam mode
+salin-konten agar staging pada drive tersebut tidak gagal dengan code 23.
+
+Untuk performa file yang lebih cepat, staging tetap disarankan berada pada
+filesystem Linux WSL, misalnya:
+
+```text
+/var/lib/j-backup-staging
+```
+
+Lokasinya dapat diubah dari **Pengaturan → Folder staging lokal**.
 
 ## 8. Memindahkan aplikasi
 
