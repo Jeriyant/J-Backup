@@ -80,6 +80,23 @@ const app = document.querySelector("#app");
         return "latency-bad";
     };
 
+    const sourceInitials = (name) => {
+        const parts = String(name ?? "").trim().split(/[\s_-]+/).filter(Boolean);
+        if (!parts.length) return "?";
+        if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+        return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+    };
+
+    const diskForPath = (path, disks) => {
+        const normalized = String(path ?? "").replace(/\/+$/, "") || "/";
+        return [...disks]
+            .filter((disk) => {
+                const mount = String(disk.path ?? "").replace(/\/+$/, "") || "/";
+                return mount === "/" || normalized === mount || normalized.startsWith(`${mount}/`);
+            })
+            .sort((left, right) => String(right.path).length - String(left.path).length)[0] || null;
+    };
+
     const statusText = (status) => ({
         queued: "Antrean",
         running: "Berjalan",
@@ -520,7 +537,7 @@ const app = document.querySelector("#app");
                     ${filtered.map((item) => `
                         <article class="database-row ${item.enabled ? "" : "off"}">
                             <input type="checkbox" data-select-id="${item.id}" ${state.selected.has(item.id) ? "checked" : ""} aria-label="Pilih ${escapeHtml(item.name)}">
-                            <div class="database-icon">DIR</div>
+                            <div class="database-icon">${escapeHtml(sourceInitials(item.name))}</div>
                             <div class="database-copy"><strong>${escapeHtml(item.name)}</strong>
                                 <small>${item.paths.map((path) => escapeHtml(path.path)).join(" · ")}</small></div>
                             <span class="tag">${item.archive_mode === "separate" ? "Terpisah" : "Gabungkan"}</span>
@@ -587,8 +604,17 @@ const app = document.querySelector("#app");
     }
 
     function renderStorage() {
-        const disks = state.disks?.disks || [];
+        const isSystemMount = (path) => /^\/(?:usr\/lib\/wsl|proc|sys|dev|run)(?:\/|$)/.test(String(path));
+        const disks = [...(state.disks?.disks || [])].sort((left, right) => {
+            const systemOrder = Number(isSystemMount(left.path)) - Number(isSystemMount(right.path));
+            return systemOrder || String(left.path).localeCompare(String(right.path));
+        });
         const target = state.dashboard.disk;
+        const realtimePath = state.dashboard.settings.staging_dir;
+        const realtimeMount = diskForPath(realtimePath, disks);
+        const realtimeTarget = realtimeMount
+            ? { ...realtimeMount, path: realtimePath, available: true }
+            : { path: realtimePath, available: false, used: 0, total: 0, free: 0, used_percent: 0 };
         return `<div class="grid storage-layout">
             <article class="panel capacity"><div class="panel-heading"><div><p class="eyebrow">DISK TUJUAN</p>
                 <h2>${target.available ? "Storage terhubung" : "Storage tidak tersedia"}</h2></div>
@@ -598,9 +624,13 @@ const app = document.querySelector("#app");
                 <div class="capacity-track"><i style="width:${Math.min(target.used_percent, 100)}%"></i></div>
                 <div class="capacity-foot"><span>${target.used_percent}% terpakai</span><strong>${bytes(target.free)} tersedia</strong></div>
             </article>
-            <article class="panel"><p class="eyebrow">VERIFIKASI TUJUAN</p><h2>Syarat backup sukses</h2>
-                <ol class="checks"><li><i>1</i>Folder tanggal berhasil dibuat</li><li><i>2</i>File sementara memiliki ukuran valid</li>
-                    <li><i>3</i>Arsip lulus pengujian 7z t</li><li><i>4</i>File final tersedia di folder tujuan</li></ol>
+            <article class="panel capacity"><div class="panel-heading"><div><p class="eyebrow">DISK TUJUAN REALTIME</p>
+                <h2>${realtimeTarget.available ? "Storage terhubung" : "Storage tidak tersedia"}</h2></div>
+                <span class="status ${realtimeTarget.available ? "status-success" : "status-failed"}">${realtimeTarget.available ? "Online" : "Periksa"}</span></div>
+                <p class="path">${escapeHtml(realtimeTarget.path)}</p>
+                <div class="capacity-number"><strong>${bytes(realtimeTarget.used)}</strong><span>dari ${bytes(realtimeTarget.total)}</span></div>
+                <div class="capacity-track"><i style="width:${Math.min(realtimeTarget.used_percent, 100)}%"></i></div>
+                <div class="capacity-foot"><span>${realtimeTarget.used_percent}% terpakai</span><strong>${bytes(realtimeTarget.free)} tersedia</strong></div>
             </article>
             <section class="storage-mounts">
                 <div class="panel-heading"><div><p class="eyebrow">DISK HOST</p><h2>Penyimpanan tersedia</h2></div>

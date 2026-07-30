@@ -954,7 +954,7 @@ button.file-name:hover { color:var(--blue); }
     background:var(--surface-2);
     padding:11px;
 }
-.ssh-tools small { grid-column:1/-1; color:var(--muted); line-height:1.5; }
+.ssh-tools small { grid-column:1/-1; color:var(--muted); font-size:8px; line-height:1.4; }
 .connection-success {
     display:flex;
     align-items:center;
