@@ -48,18 +48,6 @@ function requireMethod(string $method): void
     }
 }
 
-function securePasswordTransport(): bool
-{
-    if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
-        return true;
-    }
-    $remoteAddress = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
-    if (in_array($remoteAddress, ['127.0.0.1', '::1'], true)) {
-        return true;
-    }
-    return false;
-}
-
 function validateSettings(array $values): array
 {
     $integerRules = [
@@ -816,11 +804,6 @@ try {
             if (strlen($sshPassword) > 1024) {
                 throw new RuntimeException('Password SSH terlalu panjang.');
             }
-            if (!securePasswordTransport()) {
-                throw new RuntimeException(
-                    'Password SSH hanya boleh dikirim melalui HTTPS atau localhost.'
-                );
-            }
             $secretStore->set('ssh_password', $sshPassword);
         }
         $settings = publicSettings(
@@ -859,11 +842,6 @@ try {
 
     if ($action === 'ssh_password_reveal') {
         requireMethod('POST');
-        if (!securePasswordTransport()) {
-            throw new RuntimeException(
-                'Password SSH hanya dapat ditampilkan melalui HTTPS atau localhost.'
-            );
-        }
         $password = $secretStore->get('ssh_password');
         if ($password === null) {
             throw new HttpException('Password SSH belum tersimpan.', 404);
@@ -922,11 +900,6 @@ try {
             if ($password !== '') {
                 if (strlen($password) > 1024) {
                     throw new RuntimeException('Password SSH terlalu panjang.');
-                }
-                if (!securePasswordTransport()) {
-                    throw new RuntimeException(
-                        'Password SSH hanya boleh dikirim melalui HTTPS atau localhost.'
-                    );
                 }
                 $secretStore->set('ssh_password', $password);
             } elseif (!$secretStore->has('ssh_password')) {
