@@ -167,10 +167,13 @@ Saat pertama dibuka:
 2. Buka menu **Pengaturan**.
 3. Isi host, port, user, dan password SSH. User awal adalah `root`, tetapi
    bebas diganti sesuai akun pada server sumber.
-4. Simpan pengaturan.
-5. Tekan **Connect** untuk membuat dan memasang public key.
-6. Tekan **Tes koneksi** untuk menguji autentikasi private key.
-7. Isi root database remote, folder staging, dan tujuan backup.
+4. Tekan **Connect** untuk membuat dan memasang public key. Setelah koneksi
+   berhasil, host, port, user, password terenkripsi, tipe key, komentar, dan
+   lokasi private key otomatis disimpan.
+5. Tombol Connect akan berubah menjadi **Disconnect**.
+6. Gunakan **Tes koneksi** untuk menguji kembali autentikasi private key.
+7. Isi **Sumber & tujuan rsync** pada panel terpisah, kemudian atur tujuan
+   backup pada panel **Lokasi & penamaan**.
 8. Tambahkan database dari menu **Database**.
 9. Atur jadwal sinkronisasi dan backup.
 

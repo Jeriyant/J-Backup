@@ -424,6 +424,14 @@ try {
          ON CONFLICT(key) DO UPDATE SET value = excluded.value"
     );
     $connectedStatement->execute([$connectedState]);
+    $connectedDashboard = $request('dashboard');
+    assertHttp(
+        $connectedDashboard['status'] === 200
+            && $connectedDashboard['body']['settings']['ssh_connected'] === true
+            && $connectedDashboard['body']['settings']['ssh_connected_target']
+                === 'backup@127.0.0.1',
+        'Dashboard tidak menampilkan status SSH tersimpan sebagai terhubung.'
+    );
 
     $resetRejected = $request('reset_database', 'POST', [
         'confirmation' => 'reset',

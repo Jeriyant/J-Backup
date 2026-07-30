@@ -261,6 +261,16 @@ try {
         !array_key_exists('secret', $installTask),
         'Password SSH bocor melalui hasil task.'
     );
+    $savedSshSettings = $database->settings();
+    assertTrue(
+        $savedSshSettings['remote_host'] === '127.0.0.1'
+            && (int) $savedSshSettings['remote_port'] === 22
+            && $savedSshSettings['remote_user'] === 'backup'
+            && $savedSshSettings['ssh_key_path'] === $rsaPath
+            && $savedSshSettings['ssh_key_type'] === 'rsa4096'
+            && $savedSshSettings['ssh_key_comment'] === 'Jeriyant-Key-RSA',
+        'Konfigurasi SSH sukses tidak tersimpan otomatis.'
+    );
 
     $disconnectTask = $database->createSshTask('disconnect', [
         'remote_host' => '127.0.0.1',

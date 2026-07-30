@@ -430,6 +430,18 @@ SH;
     private function recordSshConnection(array $payload, array $result): void
     {
         $config = $this->sshConfig($payload);
+        $connectionSettings = [
+            'remote_host' => $config['host'],
+            'remote_port' => $config['port'],
+            'remote_user' => $config['user'],
+            'ssh_key_path' => $config['key_path'],
+        ];
+        foreach (['ssh_key_type', 'ssh_key_comment'] as $key) {
+            if (array_key_exists($key, $payload)) {
+                $connectionSettings[$key] = $payload[$key];
+            }
+        }
+        $this->database->updateSettings($connectionSettings);
         $this->database->setSchedulerState(
             'ssh_connection',
             json_encode([

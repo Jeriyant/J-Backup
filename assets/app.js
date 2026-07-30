@@ -505,9 +505,6 @@ const app = document.querySelector("#app");
                     </select></label>
                     <label>Komentar key<input name="ssh_key_comment" maxlength="128" value="${escapeHtml(s.ssh_key_comment)}" placeholder="Jeriyant-Key-RSA"></label>
                     <label class="span-2">Private key<input name="ssh_key_path" value="${escapeHtml(s.ssh_key_path)}"></label>
-                    <label class="span-2">Root database remote<input name="remote_root" value="${escapeHtml(s.remote_root)}"></label>
-                    <label class="span-2">Folder tujuan sinkronisasi<input name="staging_dir" value="${escapeHtml(s.staging_dir)}">
-                        <small>Data rsync terbaru disimpan di sini sebelum dibuat menjadi backup.</small></label>
                     <div class="ssh-tools span-2">
                         <button class="button ${sshConnected ? "danger ssh-disconnect" : "ssh-setup"}" type="button"
                             data-action="${sshConnected ? "ssh-disconnect" : "ssh-connect"}">
@@ -518,6 +515,14 @@ const app = document.querySelector("#app");
                             ? `Terhubung ke ${escapeHtml(s.ssh_connected_target || `${s.remote_user}@${s.remote_host}`)}. Disconnect mencabut key remote dan menghapus key lokal.`
                             : "Connect membuat key, memasangnya ke server sumber, lalu menguji login tanpa password."}</small>
                     </div>
+                </div>
+            </section>
+            <section class="panel"><div class="panel-heading"><div><p class="eyebrow">DATA SINKRONISASI</p><h2>Sumber & tujuan rsync</h2></div></div>
+                <div class="form-grid">
+                    <label class="span-2">Root database remote<input name="remote_root" value="${escapeHtml(s.remote_root)}">
+                        <small>Folder induk database pada server sumber.</small></label>
+                    <label class="span-2">Folder tujuan sinkronisasi<input name="staging_dir" value="${escapeHtml(s.staging_dir)}">
+                        <small>Data rsync terbaru disimpan di sini sebelum dibuat menjadi backup.</small></label>
                 </div>
             </section>
             <section class="panel"><div class="panel-heading"><div><p class="eyebrow">HASIL BACKUP</p><h2>Lokasi & penamaan</h2></div></div>
