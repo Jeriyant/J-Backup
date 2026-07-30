@@ -434,24 +434,24 @@ const app = document.querySelector("#app");
                 : "Host sumber belum diatur");
         const critical = [];
         const warnings = [];
-        if (!workerReady) critical.push("Worker tidak terhubung");
+        if (!workerReady) critical.push("Worker Tidak Terhubung");
         if (!d.disk.available) {
-            critical.push("Folder backup tidak tersedia");
+            critical.push("Folder Backup Tidak Tersedia");
         } else if (d.disk.free < Number(d.settings.minimum_free_bytes || 0)) {
-            critical.push("Ruang disk di bawah batas minimum");
+            critical.push("Ruang Disk Di Bawah Batas Minimum");
         }
-        if (Number(system.cpu_percent) >= 95) critical.push("CPU mencapai batas kritis");
-        else if (Number(system.cpu_percent) >= 80) warnings.push("Penggunaan CPU tinggi");
-        if (Number(system.memory?.used_percent) >= 95) critical.push("Memory mencapai batas kritis");
-        else if (Number(system.memory?.used_percent) >= 80) warnings.push("Penggunaan memory tinggi");
+        if (Number(system.cpu_percent) >= 95) critical.push("CPU Mencapai Batas Kritis");
+        else if (Number(system.cpu_percent) >= 80) warnings.push("Penggunaan CPU Tinggi");
+        if (Number(system.memory?.used_percent) >= 95) critical.push("Memory Mencapai Batas Kritis");
+        else if (Number(system.memory?.used_percent) >= 80) warnings.push("Penggunaan Memory Tinggi");
         if (Number.isFinite(state.latencyMs) && state.latencyMs > 500) {
-            critical.push("Latensi browser sangat tinggi");
+            critical.push("Latensi Browser Sangat Tinggi");
         } else if (Number.isFinite(state.latencyMs) && state.latencyMs > 250) {
-            warnings.push("Latensi browser tinggi");
+            warnings.push("Latensi Browser Tinggi");
         }
-        if (activeSources.length && !sshConnected) warnings.push("SSH sumber belum terhubung");
-        if (!enabledSchedules.length) warnings.push("Tidak ada jadwal aktif");
-        if (failures) warnings.push(`${failures} pekerjaan gagal dalam 24 jam`);
+        if (activeSources.length && !sshConnected) warnings.push("SSH Sumber Belum Terhubung");
+        if (!enabledSchedules.length) warnings.push("Tidak Ada Jadwal Aktif");
+        if (failures) warnings.push(`${failures} Pekerjaan Gagal Dalam 24 Jam`);
 
         const healthLevel = critical.length
             ? "critical"
@@ -461,18 +461,18 @@ const app = document.querySelector("#app");
                     ? "warning"
                     : "healthy";
         const headline = {
-            critical: "Sistem memerlukan tindakan segera",
-            warning: "Sistem berjalan dengan peringatan",
-            running: `${active?.type === "sync" ? "Sinkronisasi" : "Backup"} sedang berjalan`,
-            healthy: "Seluruh komponen terpantau normal",
+            critical: "Sistem Butuh Penanganan",
+            warning: "Berjalan dengan Peringatan",
+            running: `${active?.type === "sync" ? "Sinkronisasi" : "Backup"} Sedang Berjalan`,
+            healthy: "Seluruh Komponen Normal",
         }[healthLevel];
         const detail = critical.length
             ? [...critical, ...warnings].join(" · ")
             : active
-                ? `${active.source_name} sedang diproses. ${d.queue_count} pekerjaan menunggu.${warnings.length ? ` Catatan: ${warnings.join(" · ")}` : ""}`
+                ? `${active.source_name} Sedang Diproses. ${d.queue_count} Pekerjaan Menunggu.${warnings.length ? ` Catatan: ${warnings.join(" · ")}` : ""}`
                 : warnings.length
                     ? warnings.join(" · ")
-                    : "Worker, SSH, disk, resource host, dan jadwal berada dalam kondisi siap.";
+                    : "Worker Aktif · SSH Terhubung · Folder Backup Tersedia · Ruang Disk Mencukupi · CPU Dan Memory Normal · Latensi Normal · Ada Jadwal Aktif · Tidak Ada Kegagalan Dalam 24 Jam";
         const healthBadge = {
             critical: "!",
             warning: "WARN",
@@ -484,7 +484,7 @@ const app = document.querySelector("#app");
                 <article class="hero hero-status-${healthLevel}">
                     <div class="hero-copy"><p class="eyebrow">KESEHATAN SISTEM</p><h2>${escapeHtml(headline)}</h2>
                         <p>${escapeHtml(detail)}</p>
-                        <small class="health-scope">Worker · SSH · disk · CPU · memory · jadwal · pekerjaan</small></div>
+                        <small class="health-scope">Worker · SSH · Disk · CPU · Memory · Jadwal · Pekerjaan</small></div>
                     <div class="health"><span>${healthBadge}</span></div>
                 </article>
                 <div class="metrics">
