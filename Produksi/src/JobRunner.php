@@ -1242,7 +1242,7 @@ SH;
     ): string {
         $settings = $this->database->settings();
         $lines = [
-            'J-BACKUP v.2.5.0',
+            'J-BACKUP v.2.6.0',
             '=================================',
         ];
 
