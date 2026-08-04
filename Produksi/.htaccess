@@ -1,0 +1,15 @@
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(?:bin|deploy|scripts|src|storage|tests|Realtime-Data|Hasil-Backup)(?:/|$) - [F,L,NC]
+    RewriteRule ^(?:README\.md|\.gitignore)$ - [F,L,NC]
+</IfModule>
+
+<FilesMatch "^(?!index\.php$|api\.php$).+\.php$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "\.(sqlite(?:-shm|-wal)?|conf|service|timer|sh|md|log)$">
+    Require all denied
+</FilesMatch>

@@ -202,10 +202,10 @@ try {
     assertHttp(
         $initialDashboard['status'] === 200
             && $initialDashboard['body']['settings']['remote_user'] === 'root'
-            && $initialDashboard['body']['settings']['staging_dir']
-                === $applicationRoot . '/Realtime-Data'
+            && $initialDashboard['body']['settings']['rsync_dir']
+                === $applicationRoot . '/RSYNC'
             && $initialDashboard['body']['settings']['backup_dir']
-                === $applicationRoot . '/Hasil-Backup'
+                === $applicationRoot . '/BACKUP'
             && array_key_exists('system', $initialDashboard['body'])
             && array_key_exists('memory', $initialDashboard['body']['system']),
         'Default user SSH dan folder aplikasi pertama tidak benar.'
@@ -243,17 +243,17 @@ try {
     );
 
     $backupRoot = $root . '/backups';
-    $realtimeRoot = $root . '/realtime';
+    $rsyncRoot = $root . '/rsync';
     mkdir($backupRoot . '/2026/07/30', 0770, true);
-    mkdir($realtimeRoot . '/source-one', 0770, true);
+    mkdir($rsyncRoot . '/source-one', 0770, true);
     file_put_contents(
         $backupRoot . '/2026/07/30/sample-backup.7z',
         'simulated-7z-content'
     );
-    file_put_contents($realtimeRoot . '/source-one/data.txt', 'realtime-content');
+    file_put_contents($rsyncRoot . '/source-one/data.txt', 'rsync-content');
     $settings = $request('settings_update', 'POST', [
         'backup_dir' => $backupRoot,
-        'staging_dir' => $realtimeRoot,
+        'rsync_dir' => $rsyncRoot,
         'remote_host' => '127.0.0.1',
         'remote_port' => 22,
         'remote_user' => 'backup',
@@ -298,19 +298,20 @@ try {
     $backupList = $request('backup_list');
     assertHttp(
         $backupList['status'] === 200
-            && $backupList['body']['entries'][0]['name'] === '2026',
-        'Explorer Backup baru tidak menampilkan folder tujuan.'
+            && $backupList['body']['entries'][0]['name'] === '2026'
+            && $backupList['body']['entries'][0]['size'] > 0,
+        'Explorer Backup baru tidak menampilkan folder tujuan atau ukurannya.'
     );
-    $realtimeList = $request(
-        'realtime_list',
+    $rsyncList = $request(
+        'rsync_list',
         'GET',
         null,
         ['path' => 'source-one']
     );
     assertHttp(
-        $realtimeList['status'] === 200
-            && $realtimeList['body']['entries'][0]['name'] === 'data.txt',
-        'Explorer Realtime tidak menampilkan hasil sinkronisasi.'
+        $rsyncList['status'] === 200
+            && $rsyncList['body']['entries'][0]['name'] === 'data.txt',
+        'Explorer RSYNC tidak menampilkan hasil RSYNC.'
     );
 
     $storageRoot = $request('storage_list');
@@ -354,26 +355,26 @@ try {
         'Download file backup gagal.'
     );
     $folderDownload = $rawRequest(
-        'realtime_download',
+        'rsync_download',
         'GET',
         '',
         'application/octet-stream',
         ['path' => 'source-one']
     );
-    $downloadedZip = $root . '/downloaded-realtime.zip';
+    $downloadedZip = $root . '/downloaded-rsync.zip';
     file_put_contents($downloadedZip, $folderDownload['body']);
     $zip = new ZipArchive();
     $zipOpened = $folderDownload['status'] === 200
         && $zip->open($downloadedZip) === true;
-    $zippedRealtime = $zipOpened
+    $zippedRsync = $zipOpened
         ? $zip->getFromName('source-one/data.txt')
         : false;
     if ($zipOpened) {
         $zip->close();
     }
     assertHttp(
-        $zipOpened && $zippedRealtime === 'realtime-content',
-        'Download folder realtime sebagai ZIP gagal.'
+        $zipOpened && $zippedRsync === 'rsync-content',
+        'Download folder RSYNC sebagai ZIP gagal.'
     );
 
     $boundary = '----JBackupTest' . bin2hex(random_bytes(6));
@@ -398,29 +399,52 @@ try {
                 === $uploadContent,
         'Upload file backup gagal.'
     );
-    $realtimeUploadContent = 'uploaded-realtime-content';
-    $realtimeMultipart = "--{$boundary}\r\n"
+    $rsyncUploadContent = 'uploaded-rsync-content';
+    $rsyncMultipart = "--{$boundary}\r\n"
         . "Content-Disposition: form-data; name=\"kind\"\r\n\r\n"
-        . "realtime\r\n"
+        . "rsync\r\n"
         . "--{$boundary}\r\n"
         . "Content-Disposition: form-data; name=\"path\"\r\n\r\n"
         . "source-one\r\n"
         . "--{$boundary}\r\n"
         . "Content-Disposition: form-data; name=\"file\"; filename=\"uploaded.txt\"\r\n"
         . "Content-Type: text/plain\r\n\r\n"
-        . $realtimeUploadContent . "\r\n"
+        . $rsyncUploadContent . "\r\n"
         . "--{$boundary}--\r\n";
-    $realtimeUpload = $rawRequest(
+    $rsyncUpload = $rawRequest(
         'storage_upload',
         'POST',
-        $realtimeMultipart,
+        $rsyncMultipart,
         "multipart/form-data; boundary={$boundary}"
     );
     assertHttp(
-        $realtimeUpload['status'] === 201
-            && file_get_contents($realtimeRoot . '/source-one/uploaded.txt')
-                === $realtimeUploadContent,
-        'Upload file realtime gagal.'
+        $rsyncUpload['status'] === 201
+            && file_get_contents($rsyncRoot . '/source-one/uploaded.txt')
+                === $rsyncUploadContent,
+        'Upload file RSYNC gagal.'
+    );
+    $backupDelete = $request('backup_delete', 'POST', [
+        'path' => '2026/07/30/uploaded-backup.7z',
+    ]);
+    assertHttp(
+        $backupDelete['status'] === 200
+            && !file_exists($backupRoot . '/2026/07/30/uploaded-backup.7z'),
+        'Penghapusan file Backup gagal.'
+    );
+    mkdir($rsyncRoot . '/remove-tree/nested', 0770, true);
+    file_put_contents($rsyncRoot . '/remove-tree/nested/file.txt', 'delete-me');
+    $rsyncDelete = $request('rsync_delete', 'POST', [
+        'path' => 'remove-tree',
+    ]);
+    assertHttp(
+        $rsyncDelete['status'] === 200
+            && !file_exists($rsyncRoot . '/remove-tree'),
+        'Penghapusan folder RSYNC secara rekursif gagal.'
+    );
+    $blockedRootDelete = $request('backup_delete', 'POST', ['path' => '']);
+    assertHttp(
+        $blockedRootDelete['status'] === 400,
+        'Root Backup dapat dihapus melalui explorer.'
     );
 
     $source = $request('source_create', 'POST', [
@@ -450,8 +474,32 @@ try {
         'Perubahan path sumber melalui API gagal.'
     );
 
+    $createdJobs = $request('jobs_create', 'POST', [
+        'type' => 'backup',
+        'source_ids' => [$source['body']['source']['id']],
+    ]);
+    $createdJob = $createdJobs['body']['jobs'][0] ?? null;
+    assertHttp(
+        $createdJobs['status'] === 202
+            && is_array($createdJob)
+            && $createdJob['status'] === 'queued',
+        'Pekerjaan uji untuk polling detail tidak dapat dibuat.'
+    );
+    $jobStatus = $request(
+        'job_status',
+        'GET',
+        null,
+        ['id' => $createdJob['id']]
+    );
+    assertHttp(
+        $jobStatus['status'] === 200
+            && $jobStatus['body']['job']['id'] === $createdJob['id']
+            && $jobStatus['body']['job']['status'] === 'queued',
+        'Endpoint polling detail pekerjaan tidak mengembalikan pekerjaan terbaru.'
+    );
+
     $schedule = $request('schedule_update', 'POST', [
-        'type' => 'sync',
+        'type' => 'backup',
         'enabled' => true,
         'mode' => 'minutes',
         'interval_value' => 15,
@@ -537,17 +585,17 @@ try {
         $dashboard['body']['settings']['ssh_connected'] === false,
         'Status koneksi SSH awal tidak benar.'
     );
-    $syncSchedule = array_values(array_filter(
+    $backupSchedule = array_values(array_filter(
         $dashboard['body']['schedules'],
-        static fn (array $item): bool => $item['type'] === 'sync'
+        static fn (array $item): bool => $item['type'] === 'backup'
     ))[0];
     assertHttp(
-        $syncSchedule['mode'] === 'minutes'
-            && $syncSchedule['interval_value'] === 15,
+        $backupSchedule['mode'] === 'minutes'
+            && $backupSchedule['interval_value'] === 15,
         'Dashboard tidak memuat pola jadwal baru.'
     );
     $weeklySchedule = $request('schedule_update', 'POST', [
-        'type' => 'sync',
+        'type' => 'backup',
         'mode' => 'weekly',
     ]);
     assertHttp(
@@ -594,8 +642,8 @@ try {
     );
     $stableId = $importedSources['Import Dokumen']['id'];
     $upsertBoundary = '----JBackupUpsert' . bin2hex(random_bytes(6));
-    $upsertCsv = "kode_sumber,nama_sumber,mode_arsip,subfolder_hasil,path_sumber,aktif\r\n"
-        . "IMPORT-DOKUMEN,Dokumen Diperbarui,gabung,dokumen-baru,/srv/dokumen-baru,ya\r\n";
+    $upsertCsv = "nama_sumber,mode_arsip,subfolder_hasil,path_sumber,aktif\r\n"
+        . "Import Dokumen,gabung,dokumen-baru,/srv/dokumen-baru,ya\r\n";
     $upsertMultipart = "--{$upsertBoundary}\r\n"
         . "Content-Disposition: form-data; name=\"file\"; filename=\"upsert.csv\"\r\n"
         . "Content-Type: text/csv\r\n\r\n"
@@ -615,8 +663,8 @@ try {
             && $sourceUpsertBody['created_count'] === 0
             && $sourceUpsertBody['updated_count'] === 1
             && $sourceUpsertBody['sources'][0]['id'] === $stableId
-            && $sourceUpsertBody['sources'][0]['name'] === 'Dokumen Diperbarui',
-        'Import berdasarkan kode sumber tidak mempertahankan ID internal.'
+            && $sourceUpsertBody['sources'][0]['name'] === 'Import Dokumen',
+        'Import berdasarkan nama sumber tidak mempertahankan ID internal.'
     );
 
     $xlsxFile = $root . '/sumber.xlsx';
