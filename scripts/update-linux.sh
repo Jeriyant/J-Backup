@@ -208,7 +208,8 @@ rollback() {
   for directory in src assets bin deploy scripts; do
     if [[ -d "${backup_dir}/${directory}" ]]; then
       mkdir -p "${app_dir}/${directory}"
-      rsync -a --delete "${backup_dir}/${directory}/" "${app_dir}/${directory}/" || true
+      rsync -rl --delete --no-perms --no-owner --no-group --omit-dir-times \
+        "${backup_dir}/${directory}/" "${app_dir}/${directory}/" || true
     fi
   done
   for file in index.php api.php version.json og.png .htaccess "Cara Install.md"; do
@@ -220,7 +221,8 @@ write_progress "install" 78 "Memasang kode J-BACKUP ${remote_version}..." 0 0
 install_failed=0
 for directory in src assets bin deploy scripts; do
   mkdir -p "${app_dir}/${directory}"
-  rsync -a --delete "${extract_dir}/${directory}/" "${app_dir}/${directory}/" \
+  rsync -rl --delete --no-perms --no-owner --no-group --omit-dir-times \
+    "${extract_dir}/${directory}/" "${app_dir}/${directory}/" \
     || install_failed=1
 done
 for file in index.php api.php version.json og.png .htaccess "Cara Install.md"; do

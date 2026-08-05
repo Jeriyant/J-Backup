@@ -1265,7 +1265,7 @@ const app = document.querySelector("#app");
         for (const k of defaultOrder) {
             if (!currentOrder.includes(k)) currentOrder.push(k);
         }
-        const standbyTemplate = `J-BACKUP v.2.7.0
+        const standbyTemplate = `J-BACKUP v.2.7.1
 =================================
 Tipe          : Standby
 Waktu     : {{waktu}}
@@ -1276,7 +1276,7 @@ Disk          : {{disk}}
 Anydesk : {{anydesk_id}}
 Health      : {{kesehatan_system}}
 =================================`;
-        const jobTemplate = `J-BACKUP v.2.7.0
+        const jobTemplate = `J-BACKUP v.2.7.1
 =================================
 Tipe          : {{tipe}}
 Waktu     : {{waktu}}
