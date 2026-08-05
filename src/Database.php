@@ -726,8 +726,8 @@ final class Database
     public function createUser(string $username, string $passwordHash): int
     {
         $username = trim($username);
-        if (!preg_match('/^[A-Za-z0-9_.-]{3,64}$/', $username)) {
-            throw new RuntimeException('Username harus berisi 3–64 karakter yang valid.');
+        if (!preg_match('/^[A-Za-z0-9_.-]{1,64}$/', $username)) {
+            throw new RuntimeException('Username harus berisi 1–64 karakter yang valid.');
         }
 
         $statement = $this->pdo->prepare(
@@ -763,9 +763,9 @@ final class Database
         ?string $passwordHash = null
     ): array {
         $username = trim($username);
-        if (!preg_match('/^[A-Za-z0-9_.-]{3,64}$/', $username)) {
+        if (!preg_match('/^[A-Za-z0-9_.-]{1,64}$/', $username)) {
             throw new RuntimeException(
-                'Username harus berisi 3–64 karakter yang valid.'
+                'Username harus berisi 1–64 karakter yang valid.'
             );
         }
         $statement = $passwordHash === null

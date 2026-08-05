@@ -9,7 +9,7 @@ use RuntimeException;
 
 final class JobRunner
 {
-    private const STORAGE_PERMISSION_MODE = 07777;
+    private const STORAGE_PERMISSION_MODE = 0777;
     private const MAX_LOG_LENGTH = 200000;
     private const HEARTBEAT_INTERVAL_SECONDS = 10;
     private const COMMAND_TIMEOUT_SECONDS = 86400;
@@ -1242,7 +1242,7 @@ SH;
     ): string {
         $settings = $this->database->settings();
         $lines = [
-            'J-BACKUP v.2.6.0',
+            'J-BACKUP v.2.7.0',
             '=================================',
         ];
 
@@ -2509,7 +2509,7 @@ SH;
     {
         if (is_file($path)) {
             if (!chmod($path, self::STORAGE_PERMISSION_MODE)) {
-                throw new RuntimeException("Izin 07777 tidak dapat diterapkan pada file: {$path}");
+                throw new RuntimeException("Izin 0777 tidak dapat diterapkan pada file: {$path}");
             }
             return;
         }
@@ -2526,12 +2526,12 @@ SH;
             }
             if (!chmod($item->getPathname(), self::STORAGE_PERMISSION_MODE)) {
                 throw new RuntimeException(
-                    "Izin 07777 tidak dapat diterapkan pada: {$item->getPathname()}"
+                    "Izin 0777 tidak dapat diterapkan pada: {$item->getPathname()}"
                 );
             }
         }
         if (!chmod($path, self::STORAGE_PERMISSION_MODE)) {
-            throw new RuntimeException("Izin 07777 tidak dapat diterapkan pada folder: {$path}");
+            throw new RuntimeException("Izin 0777 tidak dapat diterapkan pada folder: {$path}");
         }
     }
 

@@ -428,7 +428,7 @@ const app = document.querySelector("#app");
                         ? "Akun ini melindungi konfigurasi dan pekerjaan backup."
                         : "Masuk untuk mengelola RSYNC dan backup server."}</p>
                     <form class="form" data-form="auth">
-                        <label>Username<input name="username" autocomplete="username" minlength="3" required><small>Minimal 3 karakter; digunakan untuk masuk ke aplikasi.</small></label>
+                        <label>Username<input name="username" autocomplete="username" required><small>Masukkan username administrator Anda.</small></label>
                         <label>Password<span class="password-control">
                             <input id="auth-password" name="password" type="password" minlength="1"
                                 autocomplete="${setupRequired ? "new-password" : "current-password"}" required>
@@ -436,7 +436,7 @@ const app = document.querySelector("#app");
                                 aria-label="Tampilkan password" aria-pressed="false" title="Tampilkan password">
                                 <span class="eye-icon" aria-hidden="true"></span>
                             </button>
-                        </span><small>Gunakan kata sandi akun administrator Anda.</small></label>
+                        </span><small>Masukkan password administrator Anda.</small></label>
                         ${error ? `<p class="auth-error">${escapeHtml(error)}</p>` : ""}
                         <button class="button primary wide action-access" type="submit">
                             ${loginIcon()}${setupRequired ? "Buat akun & masuk" : "Masuk ke dashboard"}
@@ -717,10 +717,10 @@ const app = document.querySelector("#app");
                     ? "warning"
                     : "healthy";
         const headline = {
-            critical: "Sistem Butuh Penanganan",
-            warning: "Berjalan dengan Peringatan",
-            running: "RSYNC & BACKUP Sedang Berjalan",
-            healthy: "Seluruh Komponen Normal",
+            critical: "Kritis",
+            warning: "Peringatan",
+            running: "Bekerja",
+            healthy: "Normal",
         }[healthLevel];
         const detail = critical.length
             ? [...critical, ...warnings].join(" · ")
@@ -1265,7 +1265,7 @@ const app = document.querySelector("#app");
         for (const k of defaultOrder) {
             if (!currentOrder.includes(k)) currentOrder.push(k);
         }
-        const standbyTemplate = `J-BACKUP v.2.6.0
+        const standbyTemplate = `J-BACKUP v.2.7.0
 =================================
 Tipe          : Standby
 Waktu     : {{waktu}}
@@ -1276,7 +1276,7 @@ Disk          : {{disk}}
 Anydesk : {{anydesk_id}}
 Health      : {{kesehatan_system}}
 =================================`;
-        const jobTemplate = `J-BACKUP v.2.6.0
+        const jobTemplate = `J-BACKUP v.2.7.0
 =================================
 Tipe          : {{tipe}}
 Waktu     : {{waktu}}
@@ -1463,7 +1463,7 @@ Info          : {{info}}
             <form class="form" data-form="account-settings">
                 <label>Username
                     <input name="username" value="${escapeHtml(state.dashboard.user.username)}"
-                        minlength="3" maxlength="64" autocomplete="username" required>
+                        maxlength="64" autocomplete="username" required>
                 </label>
                 <label>Password saat ini
                     <input name="current_password" type="password" minlength="1"

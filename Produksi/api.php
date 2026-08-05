@@ -19,7 +19,7 @@ $auth = $container['auth'];
 /** @var \JBackup\SecretStore $secretStore */
 $secretStore = $container['secret_store'];
 
-const JBACKUP_VERSION = '2.6.0';
+const JBACKUP_VERSION = '2.7.0';
 const JBACKUP_GITHUB_REPOSITORY = 'Jeriyant/J-Backup';
 
 function input(): array
@@ -947,7 +947,7 @@ try {
             if (!rename($temporary, $destination)) {
                 throw new RuntimeException('File upload tidak dapat difinalisasi.');
             }
-            @chmod($destination, 07777);
+            @chmod($destination, 0777);
         } finally {
             if (is_file($temporary)) {
                 @unlink($temporary);
@@ -1282,7 +1282,7 @@ try {
         $formattedChatId = is_numeric($chatId) ? (int) $chatId : $chatId;
 
         $testText = implode("\n", [
-            'J-BACKUP v.2.6.0',
+            'J-BACKUP v.2.7.0',
             '=================================',
             'Waktu     : ' . date('d-m-Y H:i'),
             'Tipe          : Uji Coba Telegram',
