@@ -12,6 +12,9 @@ final class Database
     private PDO $pdo;
     private array $defaultSettings;
 
+    /** Bump when schema/data migrations change so upgrades run once. */
+    private const SCHEMA_VERSION = 1;
+
     private const DEFAULT_SETTINGS = [
         'remote_host' => '',
         'remote_port' => '22',
@@ -95,7 +98,9 @@ final class Database
             PDO::ATTR_EMULATE_PREPARES => false,
         ]);
         $this->pdo->exec('PRAGMA journal_mode = WAL');
-        $this->pdo->exec('PRAGMA busy_timeout = 30000');
+        // Web requests fail fast under writer contention; the CLI worker can wait longer.
+        $busyTimeout = PHP_SAPI === 'cli' ? 30000 : 5000;
+        $this->pdo->exec("PRAGMA busy_timeout = {$busyTimeout}");
         $this->pdo->exec('PRAGMA foreign_keys = ON');
         $this->migrate();
         $this->seed();
@@ -108,6 +113,42 @@ final class Database
     }
 
     private function migrate(): void
+    {
+        $this->createBaseTables();
+
+        $version = $this->schemaVersion();
+        if ($version < self::SCHEMA_VERSION) {
+            if ($version < 1) {
+                $this->upgradeToSchemaV1();
+            }
+            $this->setSchemaVersion(self::SCHEMA_VERSION);
+        }
+
+        // Cheap read; writes only when the runtime data directory actually changes.
+        $this->syncRuntimePathsIfNeeded();
+    }
+
+    private function schemaVersion(): int
+    {
+        try {
+            $value = $this->pdo->query(
+                "SELECT value FROM scheduler_state WHERE key = 'schema_version'"
+            )->fetchColumn();
+            return is_string($value) || is_int($value) ? (int) $value : 0;
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
+    private function setSchemaVersion(int $version): void
+    {
+        $statement = $this->pdo->prepare(
+            'INSERT OR REPLACE INTO scheduler_state(key, value) VALUES (?, ?)'
+        );
+        $statement->execute(['schema_version', (string) $version]);
+    }
+
+    private function createBaseTables(): void
     {
         $this->pdo->exec(
             <<<'SQL'
@@ -243,7 +284,10 @@ final class Database
             ON path_tasks(status, created_at);
             SQL
         );
+    }
 
+    private function upgradeToSchemaV1(): void
+    {
         $sourceColumns = array_column(
             $this->pdo->query('PRAGMA table_info(database_entries)')->fetchAll(),
             'name'
@@ -346,6 +390,18 @@ final class Database
         }
         $this->migrateSshTaskTypes();
         $this->migratePathTasksTable();
+        $this->migrateRuntimePaths();
+    }
+
+    private function syncRuntimePathsIfNeeded(): void
+    {
+        $runtimeDirectory = rtrim(dirname(
+            (string) $this->pdo->query('PRAGMA database_list')->fetch()['file']
+        ), '/\\');
+        $previous = $this->schedulerState('runtime_data_directory');
+        if (is_string($previous) && $previous === $runtimeDirectory) {
+            return;
+        }
         $this->migrateRuntimePaths();
     }
 
@@ -753,6 +809,15 @@ final class Database
             'SELECT id, username, password_hash FROM users WHERE id = ?'
         );
         $statement->execute([$id]);
+        $row = $statement->fetch();
+        return $row ?: null;
+    }
+
+    public function findFirstUser(): ?array
+    {
+        $statement = $this->pdo->query(
+            'SELECT id, username, password_hash FROM users ORDER BY id ASC LIMIT 1'
+        );
         $row = $statement->fetch();
         return $row ?: null;
     }
@@ -1435,17 +1500,24 @@ final class Database
         return $jobs;
     }
 
-    public function jobs(int $limit = 100): array
+    public function jobs(int $limit = 100, bool $includeDetails = true): array
     {
         $limit = max(1, min($limit, 500));
+        $select = $includeDetails
+            ? '*'
+            : "id, batch_id, type, database_id, database_name, include_sys,
+               archive_mode, output_subdirectory, source_paths, status,
+               output_path, size_bytes, progress, verification, checksum,
+               '' AS log, error, queued_at, started_at, finished_at";
         $statement = $this->pdo->prepare(
-            <<<'SQL'
-            SELECT * FROM jobs ORDER BY queued_at DESC LIMIT :limit
-            SQL
+            "SELECT {$select} FROM jobs ORDER BY queued_at DESC LIMIT :limit"
         );
         $statement->bindValue(':limit', $limit, PDO::PARAM_INT);
         $statement->execute();
-        return array_map([$this, 'normalizeJob'], $statement->fetchAll());
+        return array_map(
+            fn (array $row): array => $this->normalizeJob($row, $includeDetails),
+            $statement->fetchAll()
+        );
     }
 
     public function job(string $id): ?array
@@ -1453,7 +1525,7 @@ final class Database
         $statement = $this->pdo->prepare('SELECT * FROM jobs WHERE id = ?');
         $statement->execute([$id]);
         $row = $statement->fetch();
-        return $row ? $this->normalizeJob($row) : null;
+        return $row ? $this->normalizeJob($row, true) : null;
     }
 
     public function nextQueuedJob(): ?array
@@ -1906,13 +1978,20 @@ final class Database
         return $this->pathTask($id);
     }
 
-    public function activeJob(): ?array
+    public function activeJob(bool $includeDetails = true): ?array
     {
+        $select = $includeDetails
+            ? '*'
+            : "id, batch_id, type, database_id, database_name, include_sys,
+               archive_mode, output_subdirectory, source_paths, status,
+               output_path, size_bytes, progress, verification, checksum,
+               '' AS log, error, queued_at, started_at, finished_at";
         $row = $this->pdo->query(
-            "SELECT * FROM jobs WHERE status IN ('running', 'cancel_requested')
+            "SELECT {$select} FROM jobs
+             WHERE status IN ('running', 'cancel_requested')
              ORDER BY started_at ASC LIMIT 1"
         )->fetch();
-        return $row ? $this->normalizeJob($row) : null;
+        return $row ? $this->normalizeJob($row, $includeDetails) : null;
     }
 
     private function normalizeDatabase(array $row): array
@@ -1930,7 +2009,7 @@ final class Database
         ];
     }
 
-    private function normalizeJob(array $row): array
+    private function normalizeJob(array $row, bool $includeDetails = true): array
     {
         return [
             'id' => $row['id'],
@@ -1947,14 +2026,14 @@ final class Database
                 512,
                 JSON_THROW_ON_ERROR
             ),
-            'outputs' => $this->jobOutputs($row['id']),
+            'outputs' => $includeDetails ? $this->jobOutputs($row['id']) : [],
             'status' => $row['status'],
             'output_path' => $row['output_path'],
             'size_bytes' => (int) $row['size_bytes'],
             'progress' => max(0, min(100, (int) ($row['progress'] ?? 0))),
             'verification' => $row['verification'],
             'checksum' => $row['checksum'],
-            'log' => $row['log'],
+            'log' => $includeDetails ? (string) ($row['log'] ?? '') : '',
             'error' => $row['error'],
             'queued_at' => $row['queued_at'],
             'started_at' => $row['started_at'],

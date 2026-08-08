@@ -1542,6 +1542,16 @@ button.file-name:hover { color:var(--blue); }
 .auth-card .brand { justify-content:center; margin-bottom:36px; }
 .auth-card > .muted { margin:12px 0 25px; }
 .auth-error { margin:0; color:var(--red); font-size:10px; }
+.auth-forgot { margin-top:14px; text-align:center; }
+.link-button { background:none; border:none; padding:0; color:var(--blue); font-size:11px; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
+.link-button:hover { opacity:.75; }
+.reset-info-box { display:flex; align-items:flex-start; gap:10px; background:var(--surface2); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:16px; font-size:11px; color:var(--muted); line-height:1.5; }
+.reset-info-box p { margin:0; }
+.reset-info-icon { font-size:18px; flex-shrink:0; line-height:1; }
+.reset-token-file-box { background:var(--surface2); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:16px; }
+.reset-token-file-label { font-size:10px; color:var(--muted); margin:0 0 6px; }
+.reset-token-file-path { display:block; font-family:monospace; font-size:11px; color:var(--blue); word-break:break-all; background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:8px 10px; margin-bottom:8px; }
+.reset-token-file-box .link-button { font-size:10px; }
 .loading-screen { align-content:center; gap:14px; color:var(--muted); font-size:10px; }
 .loading-screen .brand-mark { animation:breathe 1.5s ease-in-out infinite; }
 @keyframes breathe { 50% { transform:scale(.94); opacity:.7; } }

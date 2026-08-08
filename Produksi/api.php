@@ -19,7 +19,7 @@ $auth = $container['auth'];
 /** @var \JBackup\SecretStore $secretStore */
 $secretStore = $container['secret_store'];
 
-const JBACKUP_VERSION = '2.7.1';
+const JBACKUP_VERSION = '2.8.0';
 const JBACKUP_GITHUB_REPOSITORY = 'Jeriyant/J-Backup';
 
 function input(): array
@@ -393,6 +393,8 @@ function storageEntryPath(string $root, string $relative): string
 
 function sendStorageDownload(string $entry): never
 {
+    Auth::releaseSession();
+    @set_time_limit(0);
     $download = $entry;
     $temporary = null;
     $filename = preg_replace(
@@ -673,11 +675,13 @@ try {
 
     if ($action === 'status') {
         requireMethod('GET');
-        respond([
+        $status = [
             'ok' => true,
             'version' => JBACKUP_VERSION,
             ...$auth->status(),
-        ]);
+        ];
+        Auth::releaseSession();
+        respond($status);
     }
 
     if ($action === 'setup') {
@@ -704,10 +708,46 @@ try {
         respond(['ok' => true, 'csrf_token' => $auth->csrfToken()]);
     }
 
+    if ($action === 'reset_password_token_generate') {
+        requireMethod('POST');
+        Auth::verifyOrigin();
+        $auth->verifyCsrf($_SERVER['HTTP_X_CSRF_TOKEN'] ?? null);
+        Auth::releaseSession();
+        $tokenFile = $auth->generatePasswordResetToken($container['data_directory']);
+        respond([
+            'ok' => true,
+            'token_file' => $tokenFile,
+        ]);
+    }
+
+    if ($action === 'reset_password') {
+        requireMethod('POST');
+        Auth::verifyOrigin();
+        $payload = input();
+        $auth->verifyCsrf($_SERVER['HTTP_X_CSRF_TOKEN'] ?? null);
+        Auth::releaseSession();
+        $auth->resetPassword(
+            (string) ($payload['token'] ?? ''),
+            (string) ($payload['new_password'] ?? '')
+        );
+        respond(['ok' => true]);
+    }
+
     $auth->requireUser();
     if ($method !== 'GET') {
         Auth::verifyOrigin();
         $auth->verifyCsrf($_SERVER['HTTP_X_CSRF_TOKEN'] ?? null);
+    }
+
+    // Keep the session lock only for endpoints that still mutate $_SESSION.
+    // Everything else releases early so polling cannot stall Apache workers.
+    $sessionWriteActions = [
+        'logout',
+        'account_update',
+        'reset_database',
+    ];
+    if (!in_array($action, $sessionWriteActions, true)) {
+        Auth::releaseSession();
     }
 
     if ($action === 'logout') {
@@ -833,10 +873,10 @@ try {
             'path_checks' => $pathChecks,
             'sources' => $database->sources(),
             'schedules' => $database->schedules(),
-            'jobs' => $database->jobs(150),
+            'jobs' => $database->jobs(150, false),
             'disk' => diskInfo($settings['backup_dir']),
             'system' => systemMetrics(),
-            'active_job' => $database->activeJob(),
+            'active_job' => $database->activeJob(false),
             'queue_count' => $queueCount,
             'telegram_backup_file_next_run' => $database->telegramBackupFileNextRun(),
             'worker_heartbeat' => $database->schedulerState('worker_heartbeat'),
@@ -901,6 +941,7 @@ try {
 
     if ($action === 'storage_upload') {
         requireMethod('POST');
+        @set_time_limit(0);
         $settings = $database->settings();
         $kind = (string) ($_POST['kind'] ?? 'backup');
         if (!in_array($kind, ['backup', 'rsync'], true)) {
@@ -1282,7 +1323,7 @@ try {
         $formattedChatId = is_numeric($chatId) ? (int) $chatId : $chatId;
 
         $testText = implode("\n", [
-            'J-BACKUP v.2.7.1',
+            'J-BACKUP v.2.8.0',
             '=================================',
             'Waktu     : ' . date('d-m-Y H:i'),
             'Tipe          : Uji Coba Telegram',
@@ -1535,6 +1576,7 @@ try {
     if ($action === 'update_check') {
         requireMethod('GET');
         require_once __DIR__ . '/src/UpdateChecker.php';
+        // Session already released; network I/O must not hold the lock.
         respond(UpdateChecker::latest(
             JBACKUP_GITHUB_REPOSITORY,
             JBACKUP_VERSION

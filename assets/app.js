@@ -52,6 +52,8 @@ const app = document.querySelector("#app");
             rsync: null,
             backup: null,
         },
+        resetStep: "form",
+        resetTokenFile: "",
     };
 
     const escapeHtml = (value) => String(value ?? "")
@@ -414,7 +416,12 @@ const app = document.querySelector("#app");
     }
 
     function renderAuth(setupRequired, error = "") {
-        state.mode = setupRequired ? "setup" : "login";
+        const mode = setupRequired ? "setup" : "login";
+        state.mode = mode;
+        if (state.mode !== "login") {
+            state.resetStep = "form";
+            state.resetTokenFile = "";
+        }
         app.innerHTML = `
             <main class="auth-shell">
                 <section class="auth-card">
@@ -441,7 +448,72 @@ const app = document.querySelector("#app");
                         <button class="button primary wide action-access" type="submit">
                             ${loginIcon()}${setupRequired ? "Buat akun & masuk" : "Masuk ke dashboard"}
                         </button>
+                        ${!setupRequired ? `
+                        <div class="auth-forgot">
+                            <button type="button" class="link-button" data-action="forgot-password">Lupa password?</button>
+                        </div>` : ""}
                     </form>
+                </section>
+            </main>`;
+    }
+
+    function renderForgotPassword() {
+        state.mode = "reset";
+        const step = state.resetStep;
+        app.innerHTML = `
+            <main class="auth-shell">
+                <section class="auth-card">
+                    <div class="brand">
+                        <span class="brand-mark">J</span>
+                        <span class="brand-copy"><strong>J-BACKUP</strong><small>Server data safety</small></span>
+                    </div>
+                    <p class="eyebrow">RESET PASSWORD</p>
+                    <h1>Lupa Password</h1>
+                    ${step === "form" ? `
+                        <p class="muted">Untuk mereset password, sistem akan menulis token rahasia ke file di server. Anda perlu mengakses file tersebut melalui SSH.</p>
+                        <form class="form" data-form="reset-password-request">
+                            <div class="reset-info-box">
+                                <span class="reset-info-icon">🔒</span>
+                                <p>Klik tombol di bawah untuk men-generate token reset. Token akan ditulis ke file di server yang hanya bisa diakses melalui SSH.</p>
+                            </div>
+                            <p id="reset-token-error" class="auth-error" style="display:none"></p>
+                            <button class="button primary wide" type="submit" id="btn-generate-token">
+                                <span>⟳</span>Generate Token Reset
+                            </button>
+                        </form>` : `
+                        <p class="muted">Token reset telah ditulis ke file server. Baca token tersebut, lalu masukkan di bawah bersama password baru.</p>
+                        <div class="reset-token-file-box">
+                            <p class="reset-token-file-label">Baca token dengan perintah SSH berikut:</p>
+                            <code class="reset-token-file-path">cat ${escapeHtml(state.resetTokenFile)}</code>
+                            <button type="button" class="link-button" data-action="copy-token-path"
+                                title="Salin perintah">Salin perintah</button>
+                        </div>
+                        <form class="form" data-form="reset-password">
+                            <label>Token Reset
+                                <input name="token" type="text" autocomplete="off"
+                                    placeholder="Tempel token dari file server" required>
+                                <small>Token berlaku 15 menit sejak dibuat.</small>
+                            </label>
+                            <label>Password Baru<span class="password-control">
+                                <input id="reset-new-password" name="new_password" type="password"
+                                    minlength="1" autocomplete="new-password"
+                                    placeholder="Masukkan password baru" required>
+                                <button class="password-toggle" type="button" data-action="toggle-reset-password"
+                                    aria-label="Tampilkan password baru" aria-pressed="false" title="Tampilkan password">
+                                    <span class="eye-icon" aria-hidden="true"></span>
+                                </button>
+                            </span></label>
+                            <p id="reset-error" class="auth-error" style="display:none"></p>
+                            <button class="button primary wide" type="submit">
+                                <span>✓</span>Reset Password
+                            </button>
+                            <div class="auth-forgot">
+                                <button type="button" class="link-button" data-action="regen-reset-token">Generate token baru</button>
+                            </div>
+                        </form>`}
+                    <div class="auth-forgot" style="margin-top:18px">
+                        <button type="button" class="link-button" data-action="back-to-login">← Kembali ke login</button>
+                    </div>
                 </section>
             </main>`;
     }
@@ -472,7 +544,26 @@ const app = document.querySelector("#app");
 
     async function loadDashboard(render = true, background = false) {
         const latencyPromise = measureLatency();
+        const previousJobs = state.dashboard?.jobs || [];
+        const previousLogs = new Map(
+            previousJobs
+                .filter((job) => job.log)
+                .map((job) => [job.id, { log: job.log, outputs: job.outputs }])
+        );
         state.dashboard = await api("dashboard", { background });
+        // Dashboard summaries omit heavy log/output payloads; keep details
+        // already fetched for an open job dialog across poll refreshes.
+        if (previousLogs.size && Array.isArray(state.dashboard.jobs)) {
+            state.dashboard.jobs = state.dashboard.jobs.map((job) => {
+                const previous = previousLogs.get(job.id);
+                if (!previous) return job;
+                return {
+                    ...job,
+                    log: job.log || previous.log,
+                    outputs: job.outputs?.length ? job.outputs : previous.outputs,
+                };
+            });
+        }
         state.pathChecks.rsync =
             state.dashboard.path_checks?.rsync || null;
         state.pathChecks.backup =
@@ -1265,7 +1356,7 @@ const app = document.querySelector("#app");
         for (const k of defaultOrder) {
             if (!currentOrder.includes(k)) currentOrder.push(k);
         }
-        const standbyTemplate = `J-BACKUP v.2.7.1
+        const standbyTemplate = `J-BACKUP v.2.8.0
 =================================
 Tipe          : Standby
 Waktu     : {{waktu}}
@@ -1276,7 +1367,7 @@ Disk          : {{disk}}
 Anydesk : {{anydesk_id}}
 Health      : {{kesehatan_system}}
 =================================`;
-        const jobTemplate = `J-BACKUP v.2.7.1
+        const jobTemplate = `J-BACKUP v.2.8.0
 =================================
 Tipe          : {{tipe}}
 Waktu     : {{waktu}}
@@ -1665,9 +1756,22 @@ Info          : {{info}}
         }
     }
 
-    function jobDialog(id) {
-        const job = state.dashboard.jobs.find((item) => item.id === id);
+    async function jobDialog(id) {
+        let job = state.dashboard.jobs.find((item) => item.id === id);
         if (!job) return;
+        // List/dashboard payloads omit full logs; load detail on demand.
+        try {
+            const response = await api("job_status", {
+                query: { id },
+                background: true,
+            });
+            job = response.job;
+            const index = state.dashboard.jobs.findIndex((item) => item.id === id);
+            if (index >= 0) state.dashboard.jobs[index] = job;
+            else state.dashboard.jobs.unshift(job);
+        } catch (_) {
+            // Fall back to the summary row if detail fetch fails.
+        }
         const progress = Math.max(0, Math.min(100, Number(job.progress) || 0));
         const active = jobIsActive(job);
         showModal(`<p class="eyebrow">DETAIL PEKERJAAN</p><h2>${escapeHtml(job.source_name)}</h2>
@@ -2152,6 +2256,28 @@ Info          : {{info}}
                     "aria-label",
                     visible ? "Sembunyikan password" : "Tampilkan password"
                 );
+            } else if (target.dataset.action === "toggle-reset-password") {
+                const password = document.querySelector("#reset-new-password");
+                const visible = password?.type === "password";
+                if (password) password.type = visible ? "text" : "password";
+                target.classList.toggle("visible", visible);
+                target.setAttribute("aria-pressed", String(visible));
+                target.setAttribute("aria-label", visible ? "Sembunyikan password baru" : "Tampilkan password baru");
+            } else if (target.dataset.action === "forgot-password") {
+                state.resetStep = "form";
+                state.resetTokenFile = "";
+                renderForgotPassword();
+            } else if (target.dataset.action === "back-to-login") {
+                state.resetStep = "form";
+                state.resetTokenFile = "";
+                renderAuth(false);
+            } else if (target.dataset.action === "regen-reset-token") {
+                state.resetStep = "form";
+                state.resetTokenFile = "";
+                renderForgotPassword();
+            } else if (target.dataset.action === "copy-token-path") {
+                const cmd = `cat ${state.resetTokenFile}`;
+                navigator.clipboard?.writeText(cmd).then(() => toast("Perintah disalin ke clipboard.")).catch(() => {});
             } else if (target.dataset.action === "theme") {
                 const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
                 document.documentElement.dataset.theme = next;
@@ -2462,6 +2588,34 @@ Info          : {{info}}
                     body: data,
                 });
                 await boot();
+            } else if (kind === "reset-password-request") {
+                const btn = form.querySelector("#btn-generate-token");
+                const errEl = form.querySelector("#reset-token-error");
+                if (btn) { btn.disabled = true; btn.textContent = "Membuat token..."; }
+                if (errEl) errEl.style.display = "none";
+                try {
+                    const result = await api("reset_password_token_generate", { method: "POST", body: {} });
+                    state.resetTokenFile = result.token_file || "";
+                    state.resetStep = "token-sent";
+                    renderForgotPassword();
+                } catch (err) {
+                    if (errEl) { errEl.textContent = err.message; errEl.style.display = ""; }
+                    if (btn) { btn.disabled = false; btn.innerHTML = "<span>⟳</span>Generate Token Reset"; }
+                }
+                return;
+            } else if (kind === "reset-password") {
+                const errEl = form.querySelector("#reset-error");
+                if (errEl) errEl.style.display = "none";
+                try {
+                    await api("reset_password", { method: "POST", body: data });
+                    state.resetStep = "form";
+                    state.resetTokenFile = "";
+                    renderAuth(false);
+                    toast("Password berhasil direset. Silakan login dengan password baru.");
+                } catch (err) {
+                    if (errEl) { errEl.textContent = err.message; errEl.style.display = ""; }
+                }
+                return;
             } else if (kind === "account-settings") {
                 const result = await api("account_update", {
                     method: "POST",
